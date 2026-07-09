@@ -2,6 +2,13 @@ Super Wallet Scanner
 Free, open-source blockchain forensics tool for Flare Network
 Trace fund flows across wallet networks, classify transaction patterns, and generate
 professional investigation reports.
+---
+
+## A Personal Letter
+
+**[📄 Read the Letter](./PERSONAL_LETTER.pdf)** 
+
+---
 Word to Victims
 If you’re here because you lost funds to a phishing scam, theft, or fraud—you’re not alone.
 This tool exists because someone (you might be reading this) experienced exactly what
