@@ -1,1175 +1,651 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="description" content="Super Wallet Scanner - Blockchain forensics tool for Flare Network">
-<meta name="theme-color" content="#0d1117">
-<link rel="manifest" href="manifest.json">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%230d1117' width='180' height='180'/><circle cx='90' cy='90' r='60' fill='%236ec9e0'/><circle cx='70' cy='70' r='15' fill='%23ff6b6f'/><circle cx='110' cy='70' r='15' fill='%23ffb454'/><circle cx='90' cy='110' r='20' fill='%234ade95'/></svg>">
-<title>SUPER WALLET SCANNER // Forensic Investigation</title>
-<style>
-  :root{
-    --bg: #0d1117;
-    --panel: #161c24;
-    --panel-2: #1c232d;
-    --line: #2d3644;
-    --text: #eef1f5;
-    --dim: #a7b0bd;
-    --high: #ff6b6f;
-    --med: #ffb454;
-    --low: #6ec9e0;
-    --confirmed: #ff6b6b;
-    --ok: #4ade95;
-    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  }
-  * { box-sizing: border-box; }
-  html, body {
-    margin:0; padding:0; background: var(--bg); color: var(--text);
-    font-family: var(--sans); font-size: 16px; line-height: 1.5;
-    -webkit-font-smoothing: antialiased;
-  }
-  body { padding-bottom: 60px; }
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Wallet Scanner - Free Blockchain Forensics for Theft Victims</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-  .case-header {
-    border-bottom: 1px solid var(--line);
-    padding: 24px 20px 18px;
-    background: linear-gradient(180deg, #131a22 0%, #0d1117 100%);
-  }
-  .case-header .tag {
-    font-size: 12.5px; letter-spacing: 0.14em; color: var(--low);
-    text-transform: uppercase; margin-bottom: 8px; font-weight: 600;
-  }
-  .case-header h1 {
-    margin: 0; font-size: 26px; letter-spacing: 0.01em; font-weight: 800;
-    color: #ffffff; font-family: var(--sans);
-  }
-  .case-header .sub {
-    margin-top: 8px; font-size: 15px; color: var(--dim); line-height: 1.55;
-  }
-  .case-header .sub b { color: var(--low); }
+        :root {
+            --dark-bg: #0F1419;
+            --dark-card: #1a202c;
+            --v-red: #C41E3A;
+            --accent-cyan: #00D9FF;
+            --text-light: #F0F4F8;
+            --text-muted: #A0AEC0;
+            --border-subtle: #2D3748;
+        }
 
-  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-light);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
 
-  section.panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    margin-top: 18px;
-    overflow: hidden;
-  }
-  .panel-head {
-    display:flex; align-items:center; justify-content:space-between;
-    gap: 10px; flex-wrap: wrap;
-    padding: 12px 16px; border-bottom: 1px solid var(--line);
-    background: var(--panel-2);
-  }
-  .panel-head .ph-title {
-    font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase;
-    color: var(--text); display:flex; align-items:center; gap:8px; font-weight: 700;
-  }
-  .panel-head .ph-title .num {
-    color: var(--low); font-weight:800;
-  }
-  .panel-body { padding: 16px; }
+        /* HERO SECTION WITH CODE BACKGROUND */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            background: linear-gradient(135deg, var(--dark-bg) 0%, #1a1f2e 100%);
+            position: relative;
+            overflow: hidden;
+        }
 
-  button {
-    font-family: var(--sans); font-size: 14.5px; font-weight: 600; letter-spacing: 0.01em;
-    background: #232c38; color: var(--text); border: 1px solid var(--line);
-    padding: 11px 16px; border-radius: 5px; cursor: pointer;
-    transition: border-color .15s, color .15s, background .15s;
-  }
-  button:hover { border-color: var(--low); color: #ffffff; background: #29323f; }
-  button.primary { background: #1c3f4a; border-color: var(--low); color: #d2f0f8; }
-  button.primary:hover { background: #234c59; }
-  button.danger { border-color: #6b3535; color: #ffb3b6; }
-  button.danger:hover { border-color: var(--high); color: #ffd4d5; }
-  button:disabled { opacity: 0.35; cursor: not-allowed; }
-  button:disabled:hover { border-color: var(--line); color: var(--text); background: #232c38; }
+        .hero-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+            opacity: 0.15;
+        }
 
-  textarea, input[type=text], input[type=date], input[type=number] {
-    font-family: var(--mono); font-size: 15px;
-    background: #0a0e13; color: var(--text); border: 1px solid var(--line);
-    border-radius: 5px; padding: 11px 12px; width: 100%;
-  }
-  textarea { resize: vertical; min-height: 70px; }
-  label.field-label {
-    display:block; font-size: 12.5px; letter-spacing: 0.06em; color: var(--dim);
-    text-transform: uppercase; margin-bottom: 6px; font-weight: 600;
-  }
+        .code-column {
+            position: absolute;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #00ff00;
+            white-space: pre;
+            line-height: 1.4;
+            animation: matrix-fall linear infinite;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
 
-  .row { display:flex; gap:10px; flex-wrap: wrap; align-items:flex-start; }
-  .row > * { flex: 1 1 auto; min-width: 200px; }
+        @keyframes matrix-fall {
+            0% {
+                transform: translateY(-100%);
+            }
+            100% {
+                transform: translateY(100vh);
+            }
+        }
 
-  .badge {
-    display:inline-block; font-size: 12px; letter-spacing: 0.02em; font-weight: 700;
-    padding: 4px 9px; border-radius: 4px; text-transform: uppercase;
-    margin-right: 5px; margin-bottom: 4px; white-space: nowrap;
-  }
-  .badge.high { background: rgba(255,107,111,0.18); color: var(--high); border: 1px solid rgba(255,107,111,0.5); }
-  .badge.med  { background: rgba(255,180,84,0.18); color: var(--med); border: 1px solid rgba(255,180,84,0.5); }
-  .badge.low  { background: rgba(110,201,224,0.18); color: var(--low); border: 1px solid rgba(110,201,224,0.5); }
-  .badge.relay { background: rgba(110,201,224,0.18); color: var(--low); border: 1px solid rgba(110,201,224,0.5); }
-  .badge.consolidator { background: rgba(255,107,111,0.18); color: var(--high); border: 1px solid rgba(255,107,111,0.5); }
-  .badge.distributor { background: rgba(255,180,84,0.18); color: var(--med); border: 1px solid rgba(255,180,84,0.5); }
-  .badge.exchange { background: rgba(74,222,149,0.18); color: var(--ok); border: 1px solid rgba(74,222,149,0.5); }
+        .code-column:nth-child(1) { left: 5%; animation-duration: 12s; animation-delay: 0s; }
+        .code-column:nth-child(2) { left: 12%; animation-duration: 14s; animation-delay: 1s; }
+        .code-column:nth-child(3) { left: 19%; animation-duration: 13s; animation-delay: 2s; }
+        .code-column:nth-child(4) { left: 26%; animation-duration: 15s; animation-delay: 0.5s; }
+        .code-column:nth-child(5) { left: 33%; animation-duration: 12s; animation-delay: 1.5s; }
+        .code-column:nth-child(6) { left: 40%; animation-duration: 14s; animation-delay: 2.5s; }
+        .code-column:nth-child(7) { left: 47%; animation-duration: 13s; animation-delay: 0.8s; }
+        .code-column:nth-child(8) { left: 54%; animation-duration: 15s; animation-delay: 1.8s; }
+        .code-column:nth-child(9) { left: 61%; animation-duration: 12s; animation-delay: 2.2s; }
+        .code-column:nth-child(10) { left: 68%; animation-duration: 14s; animation-delay: 0.3s; }
+        .code-column:nth-child(11) { left: 75%; animation-duration: 13s; animation-delay: 1.3s; }
+        .code-column:nth-child(12) { left: 82%; animation-duration: 15s; animation-delay: 2.8s; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
-  thead th {
-    text-align: left; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
-    color: var(--text); font-weight: 700; border-bottom: 1px solid var(--line); padding: 10px 8px; cursor: pointer;
-    white-space: nowrap;
-  }
-  thead th:hover { color: var(--low); }
-  tbody td { padding: 11px 8px; border-bottom: 1px solid #232c38; vertical-align: top; }
-  tbody tr:hover { background: #1b232d; }
-  .addr { font-family: var(--mono); font-size: 13px; color: #dbe2ea; word-break: break-all; }
-  .addr a { color: var(--low); text-decoration: none; }
-  .addr a:hover { text-decoration: underline; }
-  .score-cell { font-weight: 800; font-size: 16px; }
-  .details-toggle { color: var(--low); font-size: 13.5px; font-weight: 600; cursor: pointer; text-decoration: underline; }
-  .details-row td { background: #0e131a; font-size: 13.5px; color: var(--dim); padding: 12px 14px; }
-  .details-row ul { margin: 0; padding-left: 18px; }
-  .details-row li { margin-bottom: 5px; }
+        .hero::before {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(196, 30, 58, 0.15) 0%, transparent 70%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 0;
+        }
 
-  .stat-strip { display:flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
-  .stat-box {
-    flex: 1 1 110px; background: #0e131a; border: 1px solid var(--line);
-    border-radius: 5px; padding: 12px 14px;
-  }
-  .stat-box .n { font-size: 24px; font-weight: 800; color: #ffffff; }
-  .stat-box .l { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim); margin-top: 3px; font-weight: 600; }
+        .hero-content {
+            max-width: 900px;
+            text-align: center;
+            position: relative;
+            z-index: 2;
+        }
 
-  .empty-state { color: var(--dim); font-size: 14.5px; text-align:center; padding: 22px 12px; }
-  .toast {
-    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
-    background: #1c232d; border: 1px solid var(--low); color: var(--text);
-    padding: 11px 18px; border-radius: 6px; font-size: 14px; font-weight: 600; opacity: 0;
-    pointer-events: none; transition: opacity .2s; z-index: 100;
-  }
-  .toast.show { opacity: 1; }
-  .toast.error { border-color: var(--high); }
+        /* V SYMBOL HERO */
+        .v-symbol {
+            width: 180px;
+            height: 180px;
+            margin: 0 auto 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
 
-  .spinner {
-    display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); 
-    border-top-color: var(--low); border-radius: 50%; animation: spin 0.6s linear infinite; 
-    margin-right: 8px; vertical-align: middle;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse-glow {
+            0%, 100% {
+                filter: drop-shadow(0 0 20px rgba(196, 30, 58, 0.3));
+            }
+            50% {
+                filter: drop-shadow(0 0 40px rgba(196, 30, 58, 0.6));
+            }
+        }
 
-  .progress-bar {
-    width: 100%; height: 4px; background: #0e131a; border-radius: 2px; 
-    margin-top: 8px; overflow: hidden;
-  }
-  .progress-bar .fill { height: 100%; background: var(--low); width: 0%; transition: width 0.3s; }
+        .hero h1 {
+            font-size: clamp(2.5rem, 8vw, 4rem);
+            font-weight: 700;
+            margin-bottom: 20px;
+            letter-spacing: -1px;
+            line-height: 1.1;
+        }
 
-  .tabs {
-    display: flex; gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 12px;
-  }
-  .tab-btn {
-    flex: 0 1 auto; padding: 10px 14px; background: transparent; border: none;
-    border-bottom: 2px solid transparent; color: var(--dim); cursor: pointer;
-    font-size: 13px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
-    transition: border-color 0.15s, color 0.15s;
-  }
-  .tab-btn:hover { color: var(--text); }
-  .tab-btn.active { border-bottom-color: var(--low); color: var(--low); }
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
+        .hero .tagline {
+            font-size: 1.3rem;
+            color: var(--text-muted);
+            margin-bottom: 60px;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            line-height: 1.5;
+        }
 
-  .flare-link {
-    color: var(--low); text-decoration: none; font-weight: 600; cursor: pointer;
-  }
-  .flare-link:hover { text-decoration: underline; }
+        .cta-group {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 80px;
+        }
 
-  .results-container {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px;
-  }
-  @media (max-width: 1200px) { .results-container { grid-template-columns: 1fr; } }
+        .cta-primary, .cta-secondary {
+            padding: 16px 40px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
 
-  #networkGraph {
-    background: #0e131a; border: 1px solid var(--line); border-radius: 6px; 
-    height: 500px; position: relative;
-  }
-  .graph-container { position: relative; width: 100%; height: 100%; }
-  
-  #graphSvg { width: 100%; height: 100%; }
-  
-  .node {
-    stroke: #2d3644; stroke-width: 2px; cursor: pointer; transition: all 0.2s;
-  }
-  .node.relay { fill: #6ec9e0; }
-  .node.consolidator { fill: #ff6b6f; }
-  .node.distributor { fill: #ffb454; }
-  .node.exchange { fill: #4ade95; }
-  .node.unknown { fill: #8b94a5; }
-  .node.target { stroke: var(--low); stroke-width: 3px; }
-  .node:hover { stroke-width: 3px; filter: drop-shadow(0 0 6px rgba(110,201,224,0.5)); }
-  .node.highlight { stroke-width: 3px; stroke: var(--low); }
-  .node.dimmed { opacity: 0.2; }
+        .cta-primary {
+            background: var(--v-red);
+            color: white;
+            box-shadow: 0 8px 24px rgba(196, 30, 58, 0.3);
+        }
 
-  .link { stroke: #2d3644; stroke-width: 1.5px; opacity: 0.5; }
-  .link.inbound { stroke: #6ec9e0; }
-  .link.outbound { stroke: #ffb454; }
-  .link.highlight { stroke: var(--low); stroke-width: 2px; opacity: 0.9; }
-  .link.dimmed { opacity: 0.1; }
+        .cta-primary:hover {
+            background: #a01830;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(196, 30, 58, 0.5);
+        }
 
-  .node-label {
-    font-size: 11px; pointer-events: none; fill: var(--text); 
-    text-anchor: middle; dominant-baseline: middle; font-weight: 600;
-  }
+        .cta-secondary {
+            background: transparent;
+            color: var(--accent-cyan);
+            border: 2px solid var(--accent-cyan);
+        }
 
-  .arrowhead { fill: #2d3644; }
+        .cta-secondary:hover {
+            background: rgba(0, 217, 255, 0.1);
+            transform: translateY(-2px);
+        }
 
-  .legend {
-    position: absolute; bottom: 12px; left: 12px; background: rgba(13,17,23,0.95); 
-    border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; 
-    font-size: 12px; z-index: 10;
-  }
-  .legend-item {
-    display: flex; align-items: center; gap: 6px; margin-bottom: 5px;
-  }
-  .legend-item:last-child { margin-bottom: 0; }
-  .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
-</style>
+        /* SECTIONS */
+        section {
+            padding: 80px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .section-title {
+            font-size: 2.5rem;
+            margin-bottom: 60px;
+            text-align: center;
+            font-weight: 700;
+        }
+
+        .section-title span {
+            color: var(--v-red);
+        }
+
+        /* LETTER SECTION */
+        .letter-section {
+            background: var(--dark-card);
+            border-left: 4px solid var(--v-red);
+            padding: 40px;
+            border-radius: 8px;
+            margin-bottom: 60px;
+        }
+
+        .letter-quote {
+            font-size: 1.1rem;
+            font-style: italic;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            line-height: 1.8;
+        }
+
+        .letter-link {
+            display: inline-block;
+            color: var(--accent-cyan);
+            text-decoration: none;
+            font-weight: 600;
+            padding: 8px 0;
+            border-bottom: 2px solid var(--accent-cyan);
+            transition: all 0.3s ease;
+        }
+
+        .letter-link:hover {
+            color: var(--v-red);
+            border-bottom-color: var(--v-red);
+        }
+
+        /* FEATURES */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-bottom: 60px;
+        }
+
+        .feature-card {
+            background: var(--dark-card);
+            padding: 40px;
+            border-radius: 8px;
+            border-top: 3px solid var(--accent-cyan);
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            border-top-color: var(--v-red);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+
+        .feature-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            color: var(--accent-cyan);
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        /* VICTIM STORY */
+        .story-section {
+            background: linear-gradient(135deg, rgba(196, 30, 58, 0.1) 0%, rgba(0, 217, 255, 0.05) 100%);
+            border-radius: 8px;
+            padding: 60px 40px;
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .story-section h3 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: var(--v-red);
+        }
+
+        .story-section p {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto;
+            line-height: 1.8;
+        }
+
+        /* ACTIONS */
+        .actions-section {
+            background: var(--dark-card);
+            border-radius: 8px;
+            padding: 60px 40px;
+            text-align: center;
+        }
+
+        .actions-section h2 {
+            font-size: 2rem;
+            margin-bottom: 30px;
+        }
+
+        .action-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .step {
+            padding: 20px;
+        }
+
+        .step-num {
+            font-size: 2rem;
+            color: var(--v-red);
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .step p {
+            color: var(--text-muted);
+        }
+
+        /* FOOTER */
+        footer {
+            background: #000;
+            border-top: 1px solid var(--border-subtle);
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            color: var(--v-red);
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            .cta-group {
+                flex-direction: column;
+            }
+
+            .cta-primary, .cta-secondary {
+                width: 100%;
+            }
+
+            section {
+                padding: 40px 20px;
+            }
+
+            .section-title {
+                font-size: 1.8rem;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .action-steps {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
-
-<div class="case-header">
-  <div class="wrap">
-    <div class="tag">Blockchain Forensics</div>
-    <h1>SUPER WALLET SCANNER</h1>
-    <div class="sub">Enter a wallet address and date range to automatically classify connected wallets, identify behavioral patterns, and surface wallets of interest without manual review.</div>
-  </div>
-</div>
-
-<div class="wrap">
-
-  <!-- INPUT PANEL -->
-  <section class="panel">
-    <div class="panel-head">
-      <div class="ph-title"><span class="num">01</span> Scan Configuration</div>
-    </div>
-    <div class="panel-body">
-      <div class="row">
-        <div>
-          <label class="field-label">Target Wallet Address</label>
-          <div style="display: flex; gap: 8px;">
-            <input type="text" id="walletAddr" placeholder="0xafD358B0Eec5Ce63D7a1A686784e12c9C1Ce998e" autocomplete="off" style="flex: 1;" />
-            <button style="flex: 0 0 auto; width: 100px;" onclick="document.getElementById('walletAddr').value = ''; document.getElementById('walletAddr').focus();">CLEAR</button>
-          </div>
+    <!-- HERO -->
+    <section class="hero">
+        <div class="hero-background">
+            <div class="code-column">trace_wallet
+classify
+consolidate
+detect_pattern
+export_report
+validate
+law_enforcement
+resolve</div>
+            <div class="code-column">remember_me
+when_you_rise
+ask_nothing
+trust_God
+joseph_path
+faithfulness
+patience
+vindication</div>
+            <div class="code-column">0x4bF6129ce
+0xEeD30949A
+0xafD358B0E
+mapping
+forensics
+complete
+case_804e858a
+verified</div>
+            <div class="code-column">function()
+flow_analysis
+behavior()
+exchange
+wallets
+filters
+submit()
+done</div>
+            <div class="code-column">no_demands
+only_truth
+speak_for_me
+when_free
+remember_faithfulness
+prison_to_palace
+divine_timing
+victory</div>
+            <div class="code-column">blockchain
+parse
+verify
+signatures
+network
+topology
+evidence
+found</div>
+            <div class="code-column">trace()
+classify()
+consolidate()
+distribute()
+relay()
+identify()
+mark()
+flag</div>
+            <div class="code-column">genesis_40_14
+cupbearer
+remember
+restore
+freedom
+justice
+favor
+released</div>
+            <div class="code-column">victim
+recovery
+path
+justice
+resolution
+success
+completed
+live</div>
+            <div class="code-column">analyze
+detect
+forensics
+blockchain
+transaction
+history
+complete
+verified</div>
+            <div class="code-column">flow
+funds
+stolen
+traced
+recovered
+justice
+served
+complete</div>
+            <div class="code-column">pattern
+detection
+scam
+exposed
+criminals
+caught
+assets
+returned</div>
         </div>
-      </div>
-      <div class="row" style="margin-top: 12px;">
-        <div>
-          <label class="field-label">Start Date</label>
-          <input type="date" id="startDate" />
-        </div>
-        <div>
-          <label class="field-label">End Date</label>
-          <input type="date" id="endDate" />
-        </div>
-      </div>
-      <div style="margin-top: 14px;">
-        <button class="primary" id="scanBtn" style="width: 100%;">START SCAN</button>
-      </div>
-      <div style="display: flex; gap: 10px; margin-top: 10px;">
-        <button id="importBtn" style="flex: 1;">RESTORE BACKUP</button>
-        <input type="file" id="importFile" accept=".json" style="display: none;">
-      </div>
-      <div style="margin-top: 10px; font-size: 12px; color: var(--dim); line-height: 1.5;">
-        <strong>Performance optimized:</strong> Scans up to 200 connected wallets with 250ms delays between requests. Graph renders top 400 transaction links for mobile/laptop compatibility.
-      </div>
-      <div id="debugPanel" style="margin-top: 14px; padding: 12px; background: #0a0e13; border: 1px solid var(--line); border-radius: 5px; display: none;">
-        <div style="font-size: 11px; color: var(--dim); margin-bottom: 8px; text-transform: uppercase; font-weight: 600;">⚠️ DEBUG OUTPUT</div>
-        <textarea id="debugOutput" style="font-size: 11px; height: 120px; width: 100%;"></textarea>
-        <button onclick="document.getElementById('debugPanel').style.display = 'none';" style="margin-top: 8px; width: 100%;">Hide Debug</button>
-      </div>
-      <div id="scanProgress" style="display:none; margin-top: 12px;">
-        <div style="font-size: 13px; color: var(--dim);"><span class="spinner"></span><span id="progressText">Initializing scan...</span></div>
-        <div class="progress-bar"><div class="fill" id="progressBar"></div></div>
-      </div>
-    </div>
-  </section>
 
-  <!-- RESULTS PANEL -->
-  <div id="resultsPanel" style="display:none;">
-    <div class="results-container">
-      <!-- NETWORK GRAPH -->
-      <section class="panel">
-        <div class="panel-head">
-          <div class="ph-title"><span class="num">02</span> Network Topology</div>
-        </div>
-        <div class="panel-body" style="padding:0; height: 500px; position: relative;">
-          <div id="networkGraph">
-            <div class="graph-container">
-              <svg id="graphSvg"></svg>
-              <div class="legend">
-                <div class="legend-item"><div class="legend-dot" style="background:#ff6b6f;"></div> <span>Consolidator</span></div>
-                <div class="legend-item"><div class="legend-dot" style="background:#ffb454;"></div> <span>Distributor</span></div>
-                <div class="legend-item"><div class="legend-dot" style="background:#6ec9e0;"></div> <span>Relay</span></div>
-                <div class="legend-item"><div class="legend-dot" style="background:#4ade95;"></div> <span>Exchange</span></div>
-              </div>
+        <div class="hero-content">
+            <div class="v-symbol">
+                <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%;">
+                    <defs>
+                        <style>
+                            .v-circle { stroke: #C41E3A; stroke-width: 20; fill: none; }
+                            .v-grid { stroke: #C41E3A; stroke-width: 4; opacity: 0.3; }
+                            .v-path { stroke: #C41E3A; stroke-width: 30; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+                        </style>
+                    </defs>
+                    <circle cx="250" cy="250" r="200" class="v-circle"/>
+                    <line x1="250" y1="50" x2="250" y2="450" class="v-grid"/>
+                    <line x1="50" y1="250" x2="450" y2="250" class="v-grid"/>
+                    <path d="M 150 140 L 250 360 L 350 140" class="v-path"/>
+                </svg>
             </div>
-          </div>
+
+            <h1>Super Wallet Scanner</h1>
+            <p class="tagline">Free, open-source blockchain forensics tool. Trace your stolen funds. Help law enforcement. Recover what you can.</p>
+
+            <div class="cta-group">
+                <a href="#tool" class="cta-primary">Launch the Tool</a>
+                <a href="./PERSONAL_LETTER_WITH_V_SYMBOL.pdf" target="_blank" class="cta-secondary">Read the Letter</a>
+            </div>
         </div>
-      </section>
+    </section>
 
-      <!-- CLASSIFICATION DASHBOARD -->
-      <section class="panel">
-        <div class="panel-head">
-          <div class="ph-title"><span class="num">03</span> Classification Details</div>
-          <div style="display: flex; gap: 8px;">
-            <button id="exportBtn" style="flex: 0 0 auto; padding: 8px 12px; font-size: 12px;">EXPORT JSON</button>
-            <button id="reportBtn" style="flex: 0 0 auto; padding: 8px 12px; font-size: 12px; background: #1c3f4a; border-color: #6ec9e0; color: #d2f0f8;">GENERATE REPORT</button>
-          </div>
+    <!-- INVESTIGATION REALITY CHECK -->
+    <section style="background: var(--dark-card); padding: 60px 20px; margin-top: -40px;">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <h2 class="section-title">This Is <span>Real</span></h2>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 40px; margin-bottom: 60px;">
+                <div style="text-align: center;">
+                    <div style="font-size: 2.5rem; color: var(--v-red); font-weight: 700; margin-bottom: 10px;">8,306</div>
+                    <div style="color: var(--text-muted); font-size: 1rem;">stXRP stolen June 2026</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Via blockchain phishing exploit</div>
+                </div>
+
+                <div style="text-align: center;">
+                    <div style="font-size: 2.5rem; color: var(--v-red); font-weight: 700; margin-bottom: 10px;">18,000+</div>
+                    <div style="color: var(--text-muted); font-size: 1rem;">Victims identified</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Across the network</div>
+                </div>
+
+                <div style="text-align: center;">
+                    <div style="font-size: 2.5rem; color: var(--v-red); font-weight: 700; margin-bottom: 10px;">$4M+</div>
+                    <div style="color: var(--text-muted); font-size: 1rem;">Aggregate losses</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Documented and verified</div>
+                </div>
+            </div>
+
+            <div style="text-align: center; color: var(--text-muted); font-size: 1.1rem; line-height: 1.8; max-width: 700px; margin: 0 auto;">
+                <p>This tool was built from real investigation work. Cases have been filed with law enforcement. Evidence has been documented on the blockchain and preserved for authorities.</p>
+                <p style="margin-top: 20px; color: var(--accent-cyan);">You're not alone. The network of victims extends globally. Justice is being pursued through proper channels.</p>
+            </div>
         </div>
-        <div class="panel-body">
-          <div id="statStrip" class="stat-strip"></div>
-          
-          <div class="tabs">
-            <button class="tab-btn active" data-tab="consolidators">Consolidators</button>
-            <button class="tab-btn" data-tab="distributors">Distributors</button>
-            <button class="tab-btn" data-tab="relays">Relays</button>
-            <button class="tab-btn" data-tab="exchanges">Exchange-Linked</button>
-            <button class="tab-btn" data-tab="all">All</button>
-          </div>
-
-          <div id="consolidators-tab" class="tab-content active">
-            <div id="consolidators-list"></div>
-          </div>
-          <div id="distributors-tab" class="tab-content">
-            <div id="distributors-list"></div>
-          </div>
-          <div id="relays-tab" class="tab-content">
-            <div id="relays-list"></div>
-          </div>
-          <div id="exchanges-tab" class="tab-content">
-            <div id="exchanges-list"></div>
-          </div>
-          <div id="all-tab" class="tab-content">
-            <div id="all-list"></div>
-          </div>
-
-          <div id="noResults" class="empty-state" style="display:none;">No wallets in this category.</div>
+    </section>
+        <div class="letter-section">
+            <h2 style="margin-bottom: 20px; color: var(--v-red);">A Word to Victims</h2>
+            <p class="letter-quote">
+                "If you're here because you lost funds to a phishing scam, theft, or fraud—you're not alone. This tool exists because someone experienced exactly what you're going through. Use it to understand your loss. Use it to help law enforcement. Use it to recover what you can."
+            </p>
+            <a href="./PERSONAL_LETTER_WITH_V_SYMBOL.pdf" target="_blank" class="letter-link">
+                📄 Read the full letter
+            </a>
         </div>
-      </section>
-    </div>
-  </div>
+    </section>
 
-</div>
+    <!-- WHAT IT DOES -->
+    <section>
+        <h2 class="section-title">How It <span>Works</span></h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>Trace Your Funds</h3>
+                <p>Enter a wallet address and date range. Instantly see where your stolen funds went—consolidation wallets, exchanges, everything.</p>
+            </div>
 
-<div class="toast" id="toast"></div>
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3>Behavioral Classification</h3>
+                <p>Our tool automatically classifies wallets as consolidators, distributors, relays, or exchanges. Understand the flow instantly.</p>
+            </div>
 
-<script src="https://d3js.org/d3.v7.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-<script>
-(function(){
+            <div class="feature-card">
+                <div class="feature-icon">📊</div>
+                <h3>Professional Reports</h3>
+                <p>Generate multi-page investigation reports with network diagrams. Print to PDF. Use for law enforcement complaints.</p>
+            </div>
 
-const state = {
-  wallets: {},
-  walletArray: [],
-  scanResults: [],
-  currentTab: 'consolidators',
-  lastScanTime: null,
-  targetWallet: null,
-  dateRange: null
-};
+            <div class="feature-card">
+                <div class="feature-icon">🔐</div>
+                <h3>100% Private</h3>
+                <p>Everything runs in your browser. No data sent to servers. No registration required. Your investigation stays yours.</p>
+            </div>
 
-// ========== UTILS ==========
-function toast(msg, err=false){
-  const el = document.getElementById('toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  if(err) el.classList.add('error');
-  setTimeout(()=>el.classList.remove('show'), 3000);
-}
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>Fast & Free</h3>
+                <p>Scans complete in 30-60 seconds. MIT licensed. Open source. Free forever.</p>
+            </div>
 
-function escapeHtml(s){
-  const map = {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'};
-  return s.replace(/[&<>"']/g, c=>map[c]);
-}
+            <div class="feature-card">
+                <div class="feature-icon">🌍</div>
+                <h3>Flare Network</h3>
+                <p>Currently optimized for Flare blockchain. Built by someone who traced their own stolen stXRP.</p>
+                <p style="font-size: 0.9rem; color: var(--accent-cyan); margin-top: 15px; border-top: 1px solid var(--border-subtle); padding-top: 15px;">Multi-chain support coming soon.</p>
+            </div>
+        </div>
+    </section>
 
-function formatNum(n){
-  if(n >= 1e6) return (n/1e6).toFixed(2)+'M';
-  if(n >= 1e3) return (n/1e3).toFixed(1)+'K';
-  return n.toFixed(2);
-}
+    <!-- HOW TO USE -->
+    <section>
+        <h2 class="section-title">Get <span>Started</span></h2>
+        <div class="actions-section">
+            <div class="action-steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <p><strong>Enter Wallet</strong> Address + date range</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <p><strong>Click Scan</strong> Tool traces the funds</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <p><strong>Export Report</strong> For law enforcement</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <p><strong>File Complaint</strong> With FBI/authorities</p>
+                </div>
+            </div>
 
-function formatDate(d){
-  if(!d) return '-';
-  return new Date(d).toLocaleString('en-US', {month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit'});
-}
+            <a href="#tool" class="cta-primary" style="margin-right: 20px;">Launch Tool Now</a>
+            <a href="https://github.com/bvides-saywhen/super-wallet-scanner" target="_blank" class="cta-secondary">View on GitHub</a>
+        </div>
+    </section>
 
-// ========== BACKUP & RESTORE ==========
-function exportResults(){
-  if(state.walletArray.length === 0){
-    toast('No results to export yet', true);
-    return;
-  }
-  
-  const backup = {
-    timestamp: new Date().toISOString(),
-    version: '1.0',
-    targetWallet: state.targetWallet,
-    dateRange: state.dateRange,
-    walletCount: state.walletArray.length,
-    wallets: state.walletArray
-  };
-  
-  const blob = new Blob([JSON.stringify(backup, null, 2)], {type: 'application/json'});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `wallet-scan-${state.targetWallet?.substring(2, 10)}_${Date.now()}.json`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  toast('Results exported');
-}
+    <!-- FOOTER -->
+    <footer>
+        <p>Super Wallet Scanner • MIT License • Open Source • <a href="https://github.com/bvides-saywhen/super-wallet-scanner" target="_blank">GitHub</a> • <a href="https://x.com/saywhenxi4" target="_blank">X (@saywhenxi4)</a></p>
+        <p style="margin-top: 20px; color: #666;">Built for victims. Built by someone who understands.</p>
+    </footer>
 
-function importResults(){
-  document.getElementById('importFile').click();
-}
-
-document.getElementById('importFile').addEventListener('change', function(e){
-  const file = e.target.files[0];
-  if(!file) return;
-  
-  const reader = new FileReader();
-  reader.onload = function(event){
-    try {
-      const backup = JSON.parse(event.target.result);
-      
-      if(!backup.wallets || !Array.isArray(backup.wallets)){
-        toast('Invalid backup file format', true);
-        return;
-      }
-      
-      state.walletArray = backup.wallets;
-      state.targetWallet = backup.targetWallet;
-      state.dateRange = backup.dateRange;
-      
-      document.getElementById('resultsPanel').style.display = 'block';
-      renderResults();
-      
-      // Clear and render graph
-      d3.select('#graphSvg').selectAll('*').remove();
-      renderNetworkGraph();
-      
-      toast(`Restored ${backup.wallets.length} wallets from backup`);
-    } catch(err){
-      toast('Error reading backup file: ' + err.message, true);
-    }
-  };
-  reader.readAsText(file);
-  
-  // Reset file input
-  e.target.value = '';
-});
-
-function autoSave(){
-  if(state.walletArray.length === 0) return;
-  
-  const backup = {
-    timestamp: new Date().toISOString(),
-    targetWallet: state.targetWallet,
-    dateRange: state.dateRange,
-    wallets: state.walletArray
-  };
-  
-  try {
-    localStorage.setItem('sws_autosave', JSON.stringify(backup));
-  } catch(e){
-    // Storage full or disabled, fail silently
-  }
-}
-
-function restoreAutoSave(){
-  try {
-    const saved = localStorage.getItem('sws_autosave');
-    if(!saved) return;
-    
-    const backup = JSON.parse(saved);
-    state.walletArray = backup.wallets || [];
-    state.targetWallet = backup.targetWallet;
-    state.dateRange = backup.dateRange;
-    
-    if(state.walletArray.length > 0){
-      document.getElementById('resultsPanel').style.display = 'block';
-      renderResults();
-    }
-  } catch(e){
-    // Ignore errors
-  }
-}
-
-// ========== BLOCKSCOUT API ==========
-function addDebugOutput(msg, isError=false){
-  const panel = document.getElementById('debugPanel');
-  const output = document.getElementById('debugOutput');
-  output.value += msg + '\n';
-  output.scrollTop = output.scrollHeight;
-  // Only show panel on errors
-  if(isError) panel.style.display = 'block';
-}
-
-async function fetchWalletTransactions(addr, startDate, endDate){
-  const baseUrl = 'https://flare-explorer.flare.network/api/v2';
-  const start = Math.floor(new Date(startDate).getTime() / 1000);
-  const end = Math.floor(new Date(endDate).getTime() / 1000);
-  
-  let allTxs = [];
-  let pageParams = null;
-  let pageCount = 0;
-  
-  try {
-    do {
-      let url = `${baseUrl}/addresses/${addr}/transactions`;
-      if(pageParams) {
-        // pageParams might be an object like {page: 2} or a string like "page=2"
-        if(typeof pageParams === 'object') {
-          const params = new URLSearchParams(pageParams).toString();
-          url += `?${params}`;
-        } else {
-          url += `?${pageParams}`;
-        }
-      }
-      
-      const resp = await fetch(url);
-      if(!resp.ok) {
-        addDebugOutput(`ERROR: ${resp.status} ${resp.statusText}`, true);
-        throw new Error(`HTTP ${resp.status}`);
-      }
-      
-      const data = await resp.json();
-      
-      const items = data.items || [];
-      const txs = items.filter(tx => {
-        const ts = new Date(tx.timestamp).getTime() / 1000;
-        return ts >= start && ts <= end;
-      });
-      
-      allTxs = allTxs.concat(txs);
-      pageParams = data.next_page_params;
-      pageCount++;
-      
-      await new Promise(r => setTimeout(r, 100));
-    } while(pageParams);
-    
-    return allTxs.map(tx => ({
-      hash: tx.hash,
-      from: tx.from.hash,
-      to: tx.to.hash,
-      value: parseFloat(tx.value || 0) / 1e18,
-      timestamp: new Date(tx.timestamp).getTime(),
-      method: tx.method,
-      isError: tx.status === 'failed'
-    }));
-  } catch(e){
-    addDebugOutput(`FETCH ERROR: ${e.message}`, true);
-    return [];
-  }
-}
-
-async function getAllCounterparties(addr, startDate, endDate){
-  const txs = await fetchWalletTransactions(addr, startDate, endDate);
-  console.log(`Fetched ${txs.length} transactions for target wallet`);
-  
-  const counterparties = new Set();
-  txs.forEach(tx => {
-    if(tx.from.toLowerCase() === addr.toLowerCase()) counterparties.add(tx.to);
-    if(tx.to.toLowerCase() === addr.toLowerCase()) counterparties.add(tx.from);
-  });
-  
-  const result = Array.from(counterparties);
-  console.log(`Extracted ${result.length} unique counterparties`);
-  return result;
-}
-
-// ========== CLASSIFICATION ==========
-function classifyWallet(walletData){
-  const inbound = walletData.transactions.filter(tx => 
-    tx.to.toLowerCase() === walletData.address.toLowerCase()
-  );
-  const outbound = walletData.transactions.filter(tx => 
-    tx.from.toLowerCase() === walletData.address.toLowerCase()
-  );
-  
-  const inCount = inbound.length;
-  const outCount = outbound.length;
-  const inTotal = inbound.reduce((s, tx) => s + tx.value, 0);
-  const outTotal = outbound.reduce((s, tx) => s + tx.value, 0);
-  
-  let classifier = 'unknown';
-  let confidence = 0;
-  
-  // Single-purpose relay: 1 in, 1 out, ~same value
-  if(inCount === 1 && outCount === 1 && inTotal > 0){
-    const ratio = outTotal / inTotal;
-    if(ratio > 0.7 && ratio < 1.3){
-      classifier = 'relay';
-      confidence = 95;
-    }
-  }
-  
-  // Consolidator: multiple in, 1-2 out
-  if(inCount >= 3 && outCount <= 2 && inTotal > 0){
-    classifier = 'consolidator';
-    confidence = 85;
-  }
-  
-  // Distributor: 1-2 in, multiple out
-  if(inCount <= 2 && outCount >= 4 && outTotal > 0){
-    classifier = 'distributor';
-    confidence = 80;
-  }
-  
-  // Exchange-linked detection (heuristic: large volume, many connections)
-  if(inCount + outCount >= 10 && (inTotal > 100 || outTotal > 100)){
-    if(!classifier || classifier === 'unknown'){
-      classifier = 'exchange';
-      confidence = 60;
-    }
-  }
-  
-  return { classifier, confidence, inCount, outCount, inTotal, outTotal };
-}
-
-// ========== MAIN SCAN ==========
-async function runScan(){
-  const addrInput = document.getElementById('walletAddr').value.trim();
-  const startDate = document.getElementById('startDate').value;
-  const endDate = document.getElementById('endDate').value;
-  
-  // Force log what we're about to scan
-  console.clear();
-  console.log('=== SCAN START ===');
-  console.log('Input field value:', addrInput);
-  console.log('Input field length:', addrInput.length);
-  
-  // Clear debug panel and reset
-  document.getElementById('debugOutput').value = '';
-  document.getElementById('debugPanel').style.display = 'none';
-  addDebugOutput('=== SCAN STARTING ===');
-  addDebugOutput(`Wallet: ${addrInput}`);
-  addDebugOutput(`Dates: ${startDate} to ${endDate}`);
-  
-  // Validate address format
-  if(!addrInput || !addrInput.startsWith('0x') || addrInput.length !== 42){
-    toast(`Invalid wallet address. You entered: "${addrInput}" (${addrInput.length} chars). Must be 42 characters starting with 0x`, true);
-    console.error('Invalid address:', addrInput);
-    return;
-  }
-  
-  if(!startDate || !endDate){
-    toast('Please fill in wallet address and date range', true);
-    return;
-  }
-  
-  const addr = addrInput.toLowerCase();
-  console.log('✓ Wallet address validated:', addr);
-  console.log('✓ Date range:', startDate, 'to', endDate);
-  
-  // Store for backup
-  state.targetWallet = addr;
-  state.dateRange = { start: startDate, end: endDate };
-  document.getElementById('scanBtn').disabled = true;
-  document.getElementById('scanProgress').style.display = 'block';
-  state.wallets = {};
-  state.walletArray = [];
-  
-  try {
-    // Step 1: Get all counterparties of target wallet
-    updateProgress('Fetching target wallet transactions...', 10);
-    const counterparties = await getAllCounterparties(addr, startDate, endDate);
-    console.log(`✓ Found ${counterparties.length} connected wallets`);
-    
-    if(counterparties.length === 0){
-      throw new Error('No counterparties found for this wallet in the given date range');
-    }
-    
-    // Step 2: Fetch transaction history for each counterparty (capped at 200)
-    const cappedCounterparties = counterparties.slice(0, 200);
-    updateProgress(`Scanning ${cappedCounterparties.length} connected wallets...`, 20);
-    for(let i = 0; i < cappedCounterparties.length; i++){
-      const cp = cappedCounterparties[i];
-      const pct = 20 + (i / cappedCounterparties.length) * 70;
-      updateProgress(`Downloading transaction history (${i+1}/${cappedCounterparties.length})...`, pct);
-      
-      const txs = await fetchWalletTransactions(cp, startDate, endDate);
-      state.wallets[cp] = {
-        address: cp,
-        transactions: txs
-      };
-      
-      // Rate limiting: 250ms per wallet
-      await new Promise(r => setTimeout(r, 250));
-    }
-    
-    // Step 3: Classify wallets
-    updateProgress('Classifying wallets...', 92);
-    state.walletArray = Object.values(state.wallets).map(w => {
-      const classification = classifyWallet(w);
-      return {
-        address: w.address,
-        ...classification,
-        txCount: w.transactions.length,
-        totalValue: w.transactions.reduce((s, tx) => s + Math.abs(tx.value), 0),
-        _transactions: w.transactions
-      };
-    });
-    
-    state.walletArray.sort((a, b) => b.totalValue - a.totalValue);
-    
-    updateProgress('Rendering results...', 98);
-    renderResults();
-    
-    // Clear and render graph
-    d3.select('#graphSvg').selectAll('*').remove();
-    renderNetworkGraph();
-    
-    // Auto-save results
-    autoSave();
-    
-    updateProgress('Complete', 100);
-    
-    toast('Scan complete — results loaded');
-    setTimeout(() => {
-      document.getElementById('scanProgress').style.display = 'none';
-    }, 1000);
-    
-  } catch(err){
-    console.error('Scan error:', err);
-    addDebugOutput(`\nSCAN ERROR: ${err.message}`, true);
-    toast('Scan error: ' + err.message, true);
-  } finally {
-    document.getElementById('scanBtn').disabled = false;
-    document.getElementById('scanProgress').style.display = 'none';
-  }
-}
-
-function updateProgress(text, pct){
-  document.getElementById('progressText').textContent = text;
-  document.getElementById('progressBar').style.width = pct + '%';
-}
-
-// ========== D3 GRAPH RENDERING ==========
-function renderNetworkGraph(){
-  const svg = d3.select('#graphSvg');
-  const width = svg.node().clientWidth;
-  const height = svg.node().clientHeight;
-  
-  // Build nodes and links
-  const nodes = state.walletArray.map((w, i) => ({
-    id: w.address,
-    ...w,
-    index: i
-  }));
-  
-  const nodeMap = new Map(nodes.map(n => [n.id, n]));
-  const links = [];
-  
-  state.walletArray.forEach(w => {
-    w._transactions.forEach(tx => {
-      const source = tx.from.toLowerCase();
-      const target = tx.to.toLowerCase();
-      
-      if(nodeMap.has(source) && nodeMap.has(target)){
-        links.push({
-          source: source,
-          target: target,
-          value: tx.value,
-          direction: source === w.address.toLowerCase() ? 'out' : 'in'
+    <script>
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({ behavior: 'smooth' });
+                }
+            });
         });
-      }
-    });
-  });
-  
-  // Cap rendered links to top 400 by volume (for mobile/performance)
-  const renderedLinks = links.sort((a, b) => b.value - a.value).slice(0, 400);
-  
-  // D3 force simulation
-  const simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(renderedLinks).id(d => d.id).distance(80).strength(0.5))
-    .force('charge', d3.forceManyBody().strength(-150))
-    .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide().radius(d => Math.sqrt(d.totalValue) / 5 + 3))
-    .alphaDecay(0.03); // Faster stabilization on mobile
-  
-  // Defs for arrowheads
-  svg.append('defs').append('marker')
-    .attr('id', 'arrowhead')
-    .attr('markerWidth', 10)
-    .attr('markerHeight', 10)
-    .attr('refX', 18)
-    .attr('refY', 3)
-    .attr('orient', 'auto')
-    .append('polygon')
-    .attr('points', '0 0, 10 3, 0 6')
-    .attr('class', 'arrowhead');
-  
-  // Links (capped to top 400 by volume for performance)
-  const link = svg.append('g')
-    .selectAll('line')
-    .data(renderedLinks)
-    .enter()
-    .append('line')
-    .attr('class', d => `link ${d.direction}`)
-    .attr('marker-end', 'url(#arrowhead)');
-  
-  // Nodes
-  const node = svg.append('g')
-    .selectAll('circle')
-    .data(nodes)
-    .enter()
-    .append('circle')
-    .attr('class', d => `node ${d.classifier}${d.address.toLowerCase() === document.getElementById('walletAddr').value.toLowerCase() ? ' target' : ''}`)
-    .attr('r', d => Math.sqrt(d.totalValue) / 5 + 3)
-    .call(drag(simulation))
-    .on('mouseover', (e, d) => {
-      // Highlight connected wallets on hover
-      const connectedAddrs = new Set([d.id]);
-      renderedLinks.forEach(l => {
-        if(l.source.id === d.id) connectedAddrs.add(l.target.id);
-        if(l.target.id === d.id) connectedAddrs.add(l.source.id);
-      });
-      node.classed('highlight', n => n.id === d.id).classed('dimmed', n => !connectedAddrs.has(n.id));
-      link.classed('highlight', l => l.source.id === d.id || l.target.id === d.id)
-        .classed('dimmed', l => !connectedAddrs.has(l.source.id) || !connectedAddrs.has(l.target.id));
-    })
-    .on('mouseout', () => {
-      node.classed('highlight', false).classed('dimmed', false);
-      link.classed('highlight', false).classed('dimmed', false);
-    });
-  
-  // Labels
-  const labels = svg.append('g')
-    .selectAll('text')
-    .data(nodes)
-    .enter()
-    .append('text')
-    .attr('class', 'node-label')
-    .text(d => d.address.substring(2, 6))
-    .style('pointer-events', 'none');
-  
-  // Update positions on tick
-  simulation.on('tick', () => {
-    link
-      .attr('x1', d => d.source.x)
-      .attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x)
-      .attr('y2', d => d.target.y);
-    
-    node
-      .attr('cx', d => d.x = Math.max(10, Math.min(width - 10, d.x)))
-      .attr('cy', d => d.y = Math.max(10, Math.min(height - 10, d.y)));
-    
-    labels
-      .attr('x', d => d.x)
-      .attr('y', d => d.y);
-  });
-  
-  function drag(simulation){
-    function dragstarted(event, d){
-      if(!event.active) simulation.alphaTarget(0.3).restart();
-      d.fx = d.x;
-      d.fy = d.y;
-    }
-    function dragged(event, d){
-      d.fx = event.x;
-      d.fy = event.y;
-    }
-    function dragended(event, d){
-      if(!event.active) simulation.alphaTarget(0);
-      d.fx = null;
-      d.fy = null;
-    }
-    return d3.drag()
-      .on('start', dragstarted)
-      .on('drag', dragged)
-      .on('end', dragended);
-  }
-}
 
-// ========== PDF REPORT GENERATION ==========
-async function generateReport(){
-  if(state.walletArray.length === 0){
-    toast('No results to generate report yet', true);
-    return;
-  }
-  
-  const consolidators = state.walletArray.filter(w => w.classifier === 'consolidator');
-  const distributors = state.walletArray.filter(w => w.classifier === 'distributor');
-  const relays = state.walletArray.filter(w => w.classifier === 'relay');
-  const exchanges = state.walletArray.filter(w => w.classifier === 'exchange');
-  const totalVolume = state.walletArray.reduce((s, w) => s + w.totalValue, 0);
-  const topWallets = state.walletArray.slice(0, 15);
-  const date = new Date().toLocaleString();
-  
-  // Build HTML for PDF
-  const html = `
-    <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; color: #000; }
-          .cover { page-break-after: always; border-bottom: 2px solid #6ec9e0; padding-bottom: 30px; margin-bottom: 30px; }
-          .cover h1 { color: #0d1117; font-size: 32px; margin: 20px 0; }
-          .cover h2 { color: #6ec9e0; font-size: 28px; margin: 10px 0 30px 0; }
-          .meta { color: #666; font-size: 12px; line-height: 1.8; }
-          .metrics { display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 0; }
-          .metric { border: 1px solid #ccc; padding: 15px; border-radius: 5px; flex: 1; min-width: 150px; }
-          .metric-num { font-size: 24px; font-weight: bold; color: #0d1117; }
-          .metric-label { color: #666; font-size: 12px; text-transform: uppercase; }
-          .diagram { margin: 20px 0; padding: 20px; background: #f5f5f5; border-left: 4px solid #6ec9e0; text-align: center; line-height: 2; font-size: 12px; font-family: monospace; }
-          .diagram-arrow { color: #6ec9e0; font-weight: bold; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; font-size: 11px; }
-          th { background: #f0f0f0; font-weight: bold; color: #0d1117; }
-          tr:nth-child(even) { background: #f9f9f9; }
-          .badge { display: inline-block; padding: 4px 8px; border-radius: 3px; font-size: 10px; font-weight: bold; color: white; }
-          .badge.consolidator { background: #ff6b6f; }
-          .badge.distributor { background: #ffb454; }
-          .badge.relay { background: #6ec9e0; color: #000; }
-          .badge.exchange { background: #4ade95; color: #000; }
-          .section-title { font-size: 18px; font-weight: bold; color: #0d1117; margin-top: 30px; margin-bottom: 15px; }
-          .subsection-title { font-size: 14px; font-weight: bold; color: #0d1117; margin: 15px 0 10px 0; }
-          .disclaimer { margin-top: 30px; padding: 15px; background: #ffffcc; border-left: 4px solid #ff9800; font-size: 11px; line-height: 1.6; }
-          code { background: #f0f0f0; padding: 2px 5px; font-size: 10px; }
-        </style>
-      </head>
-      <body>
-        <div class="cover">
-          <h1>BLOCKCHAIN FORENSICS</h1>
-          <h2>INVESTIGATION REPORT</h2>
-          <div class="meta">
-            <p><strong>Super Wallet Scanner Analysis</strong></p>
-            <p>Target Wallet: <code>${state.targetWallet || 'N/A'}</code></p>
-            <p>Date Range: ${state.dateRange ? `${state.dateRange.start} to ${state.dateRange.end}` : 'N/A'}</p>
-            <p>Generated: ${date}</p>
-          </div>
-        </div>
-        
-        <div class="section-title">EXECUTIVE SUMMARY</div>
-        <p>Analysis of ${state.walletArray.length} connected wallets identified ${consolidators.length} consolidators, ${distributors.length} distributors, ${relays.length} relays, and ${exchanges.length} exchange-linked addresses. Total transaction volume: ${formatNum(totalVolume)} FLR across 259 transactions.</p>
-        
-        <div class="section-title">KEY METRICS</div>
-        <div class="metrics">
-          <div class="metric">
-            <div class="metric-num">${state.walletArray.length}</div>
-            <div class="metric-label">Wallets</div>
-          </div>
-          <div class="metric">
-            <div class="metric-num">${consolidators.length}</div>
-            <div class="metric-label">Consolidators</div>
-          </div>
-          <div class="metric">
-            <div class="metric-num">${distributors.length}</div>
-            <div class="metric-label">Distributors</div>
-          </div>
-          <div class="metric">
-            <div class="metric-num">${relays.length}</div>
-            <div class="metric-label">Relays</div>
-          </div>
-        </div>
-        
-        <div class="section-title">NETWORK TOPOLOGY</div>
-        <div class="diagram">
-          Source Wallets (Multiple)<br>
-          <span class="diagram-arrow">↓</span><br>
-          Consolidators (${consolidators.length})<br>
-          <span class="diagram-arrow">↓</span><br>
-          Distributor Hubs (${distributors.length})<br>
-          <span class="diagram-arrow">↓</span><br>
-          Relay Network (${relays.length})<br>
-          <span class="diagram-arrow">↓</span><br>
-          Final Destination Wallets
-        </div>
-        
-        <div class="section-title">CLASSIFIED WALLETS (Top 15)</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Address</th>
-              <th>Type</th>
-              <th>In</th>
-              <th>Out</th>
-              <th>Volume</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${topWallets.map(w => `
-              <tr>
-                <td><code>${w.address.substring(0, 12)}...${w.address.substring(34)}</code></td>
-                <td><span class="badge ${w.classifier}">${w.classifier}</span></td>
-                <td>${w.inCount}</td>
-                <td>${w.outCount}</td>
-                <td>${formatNum(w.totalValue)} FLR</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        
-        <div class="section-title">CLASSIFICATION METHODOLOGY</div>
-        <div class="subsection-title">Consolidator</div>
-        <p>Multiple inbound transactions funneling to single output. Indicates fund aggregation point.</p>
-        
-        <div class="subsection-title">Distributor</div>
-        <p>Single or few inbound, multiple outbound. Indicates fund dispersal/splitting.</p>
-        
-        <div class="subsection-title">Relay</div>
-        <p>Single in, single out with ~same value. Indicates automated pass-through wallet.</p>
-        
-        <div class="subsection-title">Exchange-Linked</div>
-        <p>High transaction volume, multiple counterparties. Likely exchange hot wallet or bridge.</p>
-        
-        <div class="disclaimer">
-          <strong>LIMITATIONS & DISCLAIMERS</strong><br><br>
-          This analysis is based solely on blockchain transaction data from the specified date range and wallet set. Classification is heuristic-based and may contain false positives. This report does not constitute legal advice and should not be used as sole evidence in legal proceedings without additional verification.
-        </div>
-      </body>
-    </html>
-  `;
-  
-  const filename = `blockchain-forensics-${state.targetWallet?.substring(2, 10) || 'scan'}_${Date.now()}.pdf`;
-  
-  const opt = {
-    margin: 10,
-    filename: filename,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2 },
-    jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
-  };
-  
-  try {
-    html2pdf().set(opt).from(html).save();
-    toast('Report generated - check your downloads!');
-  } catch(e) {
-    toast('PDF generation error: ' + e.message, true);
-  }
-}
-
-document.getElementById('reportBtn').addEventListener('click', generateReport);
-function renderResults(){
-  document.getElementById('resultsPanel').style.display = 'block';
-  
-  const consolidators = state.walletArray.filter(w => w.classifier === 'consolidator');
-  const distributors = state.walletArray.filter(w => w.classifier === 'distributor');
-  const relays = state.walletArray.filter(w => w.classifier === 'relay');
-  const exchanges = state.walletArray.filter(w => w.classifier === 'exchange');
-  
-  // Total transaction count
-  const totalTxs = state.walletArray.reduce((s, w) => s + (w._transactions ? w._transactions.length : 0), 0);
-  
-  // Stats
-  const stat = document.getElementById('statStrip');
-  stat.innerHTML = `
-    <div class="stat-box"><div class="n">${state.walletArray.length}</div><div class="l">Wallets Scanned</div></div>
-    <div class="stat-box"><div class="n">${totalTxs}</div><div class="l">Transactions</div></div>
-    <div class="stat-box"><div class="n" style="color:var(--high)">${consolidators.length}</div><div class="l">Consolidators</div></div>
-    <div class="stat-box"><div class="n" style="color:var(--med)">${distributors.length}</div><div class="l">Distributors</div></div>
-  `;
-  
-  renderWalletList('consolidators', consolidators);
-  renderWalletList('distributors', distributors);
-  renderWalletList('relays', relays);
-  renderWalletList('exchanges', exchanges);
-  renderWalletList('all', state.walletArray);
-}
-
-function renderWalletList(category, wallets){
-  const container = document.getElementById(category + '-list');
-  
-  if(wallets.length === 0){
-    container.innerHTML = '<div class="empty-state">No wallets in this category.</div>';
-    return;
-  }
-  
-  let html = `<table><thead><tr>
-    <th>Address</th>
-    <th>Classification</th>
-    <th>In Tx</th>
-    <th>Out Tx</th>
-    <th>Total Volume</th>
-  </tr></thead><tbody>`;
-  
-  wallets.forEach((w, i) => {
-    const badgeClass = w.classifier;
-    const flareLink = `https://flare-explorer.flare.network/address/${w.address}`;
-    html += `
-      <tr>
-        <td class="addr"><a href="${flareLink}" target="_blank" style="color: #6ec9e0; text-decoration: none; cursor: pointer;">${w.address.substring(0,12)}...${w.address.substring(34)}</a></td>
-        <td><span class="badge ${badgeClass}">${w.classifier}</span></td>
-        <td>${w.inCount}</td>
-        <td>${w.outCount}</td>
-        <td>${formatNum(w.totalValue)} FLR</td>
-      </tr>
-      <tr class="details-row" id="det-${category}-${i}" style="display:none;">
-        <td colspan="5">
-          <ul>
-            <li><b>Full Address:</b> <a href="${flareLink}" target="_blank" style="color: #6ec9e0; text-decoration: none;">${w.address}</a></li>
-            <li><b>Inbound Volume:</b> ${formatNum(w.inTotal)} FLR across ${w.inCount} transactions</li>
-            <li><b>Outbound Volume:</b> ${formatNum(w.outTotal)} FLR across ${w.outCount} transactions</li>
-            <li><b>Classification Confidence:</b> ${w.confidence}%</li>
-            <li><b>Net Flow:</b> ${w.inTotal - w.outTotal > 0 ? '+' : ''}${formatNum(w.inTotal - w.outTotal)} FLR</li>
-          </ul>
-        </td>
-      </tr>
-    `;
-  });
-  
-  html += '</tbody></table>';
-  container.innerHTML = html;
-  
-  // Attach details toggle
-  container.querySelectorAll('tbody tr').forEach((tr, i) => {
-    if(i % 2 === 0){ // header row
-      tr.style.cursor = 'pointer';
-      tr.addEventListener('click', () => {
-        const detailsRow = document.getElementById(`det-${category}-${Math.floor(i/2)}`);
-        if(detailsRow) detailsRow.style.display = detailsRow.style.display === 'none' ? 'table-row' : 'none';
-      });
-    }
-  });
-}
-
-// ========== TAB SWITCHING ==========
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const tab = btn.dataset.tab;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(tab + '-tab').classList.add('active');
-  });
-});
-
-// ========== INIT ==========
-document.getElementById('scanBtn').addEventListener('click', runScan);
-document.getElementById('exportBtn').addEventListener('click', exportResults);
-document.getElementById('importBtn').addEventListener('click', importResults);
-
-// Try to restore from auto-save
-// Don't auto-restore; just note if one exists
-const savedBackup = localStorage.getItem('sws_autosave');
-if(savedBackup) {
-  // Show a toast notification but don't auto-load
-  // User can click RESTORE BACKUP if they want it
-  const toast = document.getElementById('toast');
-  toast.textContent = '💾 Previous session found. Click RESTORE BACKUP to reload.';
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 4000);
-}
-
-// Default date range (last 7 days)
-const today = new Date();
-const sevenDaysAgo = new Date(today.getTime() - 7*24*60*60*1000);
-document.getElementById('endDate').valueAsDate = today;
-document.getElementById('startDate').valueAsDate = sevenDaysAgo;
-
-})();
-</script>
+        // Launch tool CTA
+        document.querySelectorAll('a[href="#tool"]').forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                window.location.href = 'https://super-wallet-scanner.netlify.app';
+            });
+        });
+    </script>
 </body>
 </html>
