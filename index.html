@@ -1471,7 +1471,12 @@ function renderNetworkGraph(){
     .append('circle')
     .attr('class', d => `node ${d.classifier}${d.address.toLowerCase() === document.getElementById('walletAddr').value.toLowerCase() ? ' target' : ''}`)
     .attr('r', d => Math.sqrt(d.totalValue) / 5 + 3)
+    .attr('style', 'cursor: pointer;')
     .call(drag(simulation))
+    .on('click', (e, d) => {
+      // Open Flare Scan in new tab
+      window.open(`https://flare-explorer.flare.network/address/${d.address}`, '_blank');
+    })
     .on('mouseover', (e, d) => {
       // Highlight connected wallets on hover
       const connectedAddrs = new Set([d.id]);
@@ -1482,10 +1487,41 @@ function renderNetworkGraph(){
       node.classed('highlight', n => n.id === d.id).classed('dimmed', n => !connectedAddrs.has(n.id));
       link.classed('highlight', l => l.source.id === d.id || l.target.id === d.id)
         .classed('dimmed', l => !connectedAddrs.has(l.source.id) || !connectedAddrs.has(l.target.id));
+      
+      // Show tooltip with full address
+      const tooltip = document.createElement('div');
+      tooltip.className = 'wallet-tooltip';
+      tooltip.innerHTML = `<code>${d.address}</code><br><strong>${d.classifier}</strong><br>Vol: ${formatNum(d.totalValue)} FLR`;
+      tooltip.style.cssText = `
+        position: fixed;
+        background: #0d1117;
+        color: #d2f0f8;
+        padding: 10px;
+        border-radius: 4px;
+        font-size: 11px;
+        z-index: 1000;
+        pointer-events: none;
+        border: 1px solid #6ec9e0;
+        left: ${e.pageX + 10}px;
+        top: ${e.pageY + 10}px;
+        max-width: 300px;
+      `;
+      document.body.appendChild(tooltip);
+      e.target.tooltip = tooltip;
     })
-    .on('mouseout', () => {
+    .on('mousemove', (e) => {
+      if(e.target.tooltip){
+        e.target.tooltip.style.left = (e.pageX + 10) + 'px';
+        e.target.tooltip.style.top = (e.pageY + 10) + 'px';
+      }
+    })
+    .on('mouseout', (e) => {
       node.classed('highlight', false).classed('dimmed', false);
       link.classed('highlight', false).classed('dimmed', false);
+      if(e.target.tooltip){
+        e.target.tooltip.remove();
+        e.target.tooltip = null;
+      }
     });
   
   // Labels
@@ -1515,6 +1551,15 @@ function renderNetworkGraph(){
       .attr('y', d => d.y);
   });
   
+  // Add zoom behavior (pinch on mobile, scroll on desktop)
+  const zoom = d3.zoom()
+    .scaleExtent([0.5, 4])
+    .on('zoom', (event) => {
+      svg.selectAll('g').attr('transform', event.transform);
+    });
+  
+  svg.call(zoom);
+  
   function drag(simulation){
     function dragstarted(event, d){
       if(!event.active) simulation.alphaTarget(0.3).restart();
@@ -1537,8 +1582,88 @@ function renderNetworkGraph(){
   }
 }
 
+// ========== NETWORK DIAGRAM GENERATOR ==========
+function generateNetworkDiagram(){
+  const consolidators = state.walletArray.filter(w => w.classifier === 'consolidator').slice(0, 8);
+  const distributors = state.walletArray.filter(w => w.classifier === 'distributor').slice(0, 6);
+  const relays = state.walletArray.filter(w => w.classifier === 'relay').slice(0, 12);
+  const exchanges = state.walletArray.filter(w => w.classifier === 'exchange').slice(0, 4);
+  
+  const width = 1000;
+  const height = 600;
+  const margin = 50;
+  
+  const layers = {
+    consolidators: { y: 120, color: '#ff6b6f' },
+    distributors: { y: 250, color: '#ffb454' },
+    relays: { y: 380, color: '#6ec9e0' },
+    exchanges: { y: 500, color: '#4ade95' }
+  };
+  
+  let svg = `<svg width="100%" height="600" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg" style="border: 1px solid #ddd; background: white; margin: 20px 0; page-break-inside: avoid;">`;
+  
+  // Draw connection lines
+  consolidators.forEach((cons, i) => {
+    const x1 = margin + (i + 1) * (width - 2 * margin) / (consolidators.length + 1);
+    distributors.forEach((dist, j) => {
+      const x2 = margin + (j + 1) * (width - 2 * margin) / (distributors.length + 1);
+      svg += `<line x1="${x1}" y1="${layers.consolidators.y + 40}" x2="${x2}" y2="${layers.distributors.y - 20}" stroke="#ddd" stroke-width="0.8" opacity="0.6"/>`;
+    });
+  });
+  
+  distributors.forEach((dist, i) => {
+    const x1 = margin + (i + 1) * (width - 2 * margin) / (distributors.length + 1);
+    relays.slice(0, 3).forEach((relay, j) => {
+      const x2 = margin + (j + 1) * (width - 2 * margin) / 4;
+      svg += `<line x1="${x1}" y1="${layers.distributors.y + 35}" x2="${x2}" y2="${layers.relays.y - 20}" stroke="#ddd" stroke-width="0.8" opacity="0.5"/>`;
+    });
+  });
+  
+  relays.slice(0, 3).forEach((relay, i) => {
+    const x1 = margin + (i + 1) * (width - 2 * margin) / 4;
+    exchanges.forEach((exch, j) => {
+      const x2 = margin + (j + 1) * (width - 2 * margin) / (exchanges.length + 1);
+      svg += `<line x1="${x1}" y1="${layers.relays.y + 30}" x2="${x2}" y2="${layers.exchanges.y - 20}" stroke="#ddd" stroke-width="0.8" opacity="0.4"/>`;
+    });
+  });
+  
+  // Draw nodes
+  consolidators.forEach((w, i) => {
+    const x = margin + (i + 1) * (width - 2 * margin) / (consolidators.length + 1);
+    const r = Math.max(Math.sqrt(w.totalValue) / 120, 16);
+    svg += `<circle cx="${x}" cy="${layers.consolidators.y}" r="${r}" fill="${layers.consolidators.color}" stroke="white" stroke-width="2"/>`;
+  });
+  
+  distributors.forEach((w, i) => {
+    const x = margin + (i + 1) * (width - 2 * margin) / (distributors.length + 1);
+    const r = Math.max(Math.sqrt(w.totalValue) / 120, 13);
+    svg += `<circle cx="${x}" cy="${layers.distributors.y}" r="${r}" fill="${layers.distributors.color}" stroke="white" stroke-width="2"/>`;
+  });
+  
+  relays.slice(0, 8).forEach((w, i) => {
+    const x = margin + (i + 1) * (width - 2 * margin) / 9;
+    const r = Math.max(Math.sqrt(w.totalValue) / 150, 9);
+    svg += `<circle cx="${x}" cy="${layers.relays.y}" r="${r}" fill="${layers.relays.color}" stroke="white" stroke-width="1.5" opacity="0.9"/>`;
+  });
+  
+  exchanges.forEach((w, i) => {
+    const x = margin + (i + 1) * (width - 2 * margin) / (exchanges.length + 1);
+    const r = Math.max(Math.sqrt(w.totalValue) / 120, 15);
+    svg += `<circle cx="${x}" cy="${layers.exchanges.y}" r="${r}" fill="${layers.exchanges.color}" stroke="white" stroke-width="2"/>`;
+  });
+  
+  // Labels
+  svg += `<text x="18" y="${layers.consolidators.y + 4}" font-size="11" font-weight="bold" fill="#666">CONSOLIDATORS (${consolidators.length})</text>`;
+  svg += `<text x="18" y="${layers.distributors.y + 4}" font-size="11" font-weight="bold" fill="#666">DISTRIBUTORS (${distributors.length})</text>`;
+  svg += `<text x="18" y="${layers.relays.y + 4}" font-size="11" font-weight="bold" fill="#666">RELAYS (${relays.length})</text>`;
+  svg += `<text x="18" y="${layers.exchanges.y + 4}" font-size="11" font-weight="bold" fill="#666">EXCHANGES (${exchanges.length})</text>`;
+  
+  svg += `</svg>`;
+  return svg;
+}
+
 // ========== PDF REPORT GENERATION ==========
-async function generateReport(){
+function generateReport(){
   if(state.walletArray.length === 0){
     toast('No results to generate report yet', true);
     return;
@@ -1551,147 +1676,22 @@ async function generateReport(){
   const totalVolume = state.walletArray.reduce((s, w) => s + w.totalValue, 0);
   const topWallets = state.walletArray.slice(0, 15);
   const date = new Date().toLocaleString();
+  const networkDiagram = generateNetworkDiagram();
   
-  // Build HTML for PDF
-  const html = `
-    <html>
-      <head>
-        <style>
-          body { font-family: Arial, sans-serif; margin: 20px; color: #000; }
-          .cover { page-break-after: always; border-bottom: 2px solid #6ec9e0; padding-bottom: 30px; margin-bottom: 30px; }
-          .cover h1 { color: #0d1117; font-size: 32px; margin: 20px 0; }
-          .cover h2 { color: #6ec9e0; font-size: 28px; margin: 10px 0 30px 0; }
-          .meta { color: #666; font-size: 12px; line-height: 1.8; }
-          .metrics { display: flex; flex-wrap: wrap; gap: 20px; margin: 20px 0; }
-          .metric { border: 1px solid #ccc; padding: 15px; border-radius: 5px; flex: 1; min-width: 150px; }
-          .metric-num { font-size: 24px; font-weight: bold; color: #0d1117; }
-          .metric-label { color: #666; font-size: 12px; text-transform: uppercase; }
-          .diagram { margin: 20px 0; padding: 20px; background: #f5f5f5; border-left: 4px solid #6ec9e0; text-align: center; line-height: 2; font-size: 12px; font-family: monospace; }
-          .diagram-arrow { color: #6ec9e0; font-weight: bold; }
-          table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-          th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; font-size: 11px; }
-          th { background: #f0f0f0; font-weight: bold; color: #0d1117; }
-          tr:nth-child(even) { background: #f9f9f9; }
-          .badge { display: inline-block; padding: 4px 8px; border-radius: 3px; font-size: 10px; font-weight: bold; color: white; }
-          .badge.consolidator { background: #ff6b6f; }
-          .badge.distributor { background: #ffb454; }
-          .badge.relay { background: #6ec9e0; color: #000; }
-          .badge.exchange { background: #4ade95; color: #000; }
-          .section-title { font-size: 18px; font-weight: bold; color: #0d1117; margin-top: 30px; margin-bottom: 15px; }
-          .subsection-title { font-size: 14px; font-weight: bold; color: #0d1117; margin: 15px 0 10px 0; }
-          .disclaimer { margin-top: 30px; padding: 15px; background: #ffffcc; border-left: 4px solid #ff9800; font-size: 11px; line-height: 1.6; }
-          code { background: #f0f0f0; padding: 2px 5px; font-size: 10px; }
-        </style>
-      </head>
-      <body>
-        <div class="cover">
-          <h1>BLOCKCHAIN FORENSICS</h1>
-          <h2>INVESTIGATION REPORT</h2>
-          <div class="meta">
-            <p><strong>Super Wallet Scanner Analysis</strong></p>
-            <p>Target Wallet: <code>${state.targetWallet || 'N/A'}</code></p>
-            <p>Date Range: ${state.dateRange ? `${state.dateRange.start} to ${state.dateRange.end}` : 'N/A'}</p>
-            <p>Generated: ${date}</p>
-          </div>
-        </div>
-        
-        <div class="section-title">EXECUTIVE SUMMARY</div>
-        <p>Analysis of ${state.walletArray.length} connected wallets identified ${consolidators.length} consolidators, ${distributors.length} distributors, ${relays.length} relays, and ${exchanges.length} exchange-linked addresses. Total transaction volume: ${formatNum(totalVolume)} FLR across 259 transactions.</p>
-        
-        <div class="section-title">KEY METRICS</div>
-        <div class="metrics">
-          <div class="metric">
-            <div class="metric-num">${state.walletArray.length}</div>
-            <div class="metric-label">Wallets</div>
-          </div>
-          <div class="metric">
-            <div class="metric-num">${consolidators.length}</div>
-            <div class="metric-label">Consolidators</div>
-          </div>
-          <div class="metric">
-            <div class="metric-num">${distributors.length}</div>
-            <div class="metric-label">Distributors</div>
-          </div>
-          <div class="metric">
-            <div class="metric-num">${relays.length}</div>
-            <div class="metric-label">Relays</div>
-          </div>
-        </div>
-        
-        <div class="section-title">NETWORK TOPOLOGY</div>
-        <div class="diagram">
-          Source Wallets (Multiple)<br>
-          <span class="diagram-arrow">↓</span><br>
-          Consolidators (${consolidators.length})<br>
-          <span class="diagram-arrow">↓</span><br>
-          Distributor Hubs (${distributors.length})<br>
-          <span class="diagram-arrow">↓</span><br>
-          Relay Network (${relays.length})<br>
-          <span class="diagram-arrow">↓</span><br>
-          Final Destination Wallets
-        </div>
-        
-        <div class="section-title">CLASSIFIED WALLETS (Top 15)</div>
-        <table>
-          <thead>
-            <tr>
-              <th>Address</th>
-              <th>Type</th>
-              <th>In</th>
-              <th>Out</th>
-              <th>Volume</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${topWallets.map(w => `
-              <tr>
-                <td><code>${w.address.substring(0, 12)}...${w.address.substring(34)}</code></td>
-                <td><span class="badge ${w.classifier}">${w.classifier}</span></td>
-                <td>${w.inCount}</td>
-                <td>${w.outCount}</td>
-                <td>${formatNum(w.totalValue)} FLR</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        
-        <div class="section-title">CLASSIFICATION METHODOLOGY</div>
-        <div class="subsection-title">Consolidator</div>
-        <p>Multiple inbound transactions funneling to single output. Indicates fund aggregation point.</p>
-        
-        <div class="subsection-title">Distributor</div>
-        <p>Single or few inbound, multiple outbound. Indicates fund dispersal/splitting.</p>
-        
-        <div class="subsection-title">Relay</div>
-        <p>Single in, single out with ~same value. Indicates automated pass-through wallet.</p>
-        
-        <div class="subsection-title">Exchange-Linked</div>
-        <p>High transaction volume, multiple counterparties. Likely exchange hot wallet or bridge.</p>
-        
-        <div class="disclaimer">
-          <strong>LIMITATIONS & DISCLAIMERS</strong><br><br>
-          This analysis is based solely on blockchain transaction data from the specified date range and wallet set. Classification is heuristic-based and may contain false positives. This report does not constitute legal advice and should not be used as sole evidence in legal proceedings without additional verification.
-        </div>
-      </body>
-    </html>
-  `;
+  const reportHTML = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Blockchain Forensics Report</title><style>body{font-family:Arial,sans-serif;color:#000;line-height:1.6;margin:0;padding:20px;background:white}.page{page-break-after:always;padding:40px}h1{color:#0d1117;font-size:42px;margin:20px 0 5px 0;text-align:center}h2{color:#6ec9e0;font-size:32px;margin:0 0 30px 0;text-align:center}.meta{color:#666;font-size:13px;line-height:2;margin:40px auto;text-align:center;max-width:600px}.meta code{background:#f0f0f0;padding:2px 6px;font-family:monospace}.section{margin:30px 0}.section h3{font-size:18px;color:#0d1117;margin:20px 0 15px 0;font-weight:bold;border-bottom:2px solid #6ec9e0;padding-bottom:10px}.section p{margin:10px 0;font-size:14px;color:#333;line-height:1.7}.metrics{display:flex;gap:20px;margin:20px 0;flex-wrap:wrap;justify-content:center}.metric{border:2px solid #ddd;padding:20px;border-radius:6px;min-width:140px;text-align:center;background:#f9f9f9}.metric-num{font-size:32px;font-weight:bold;color:#0d1117}.metric-label{font-size:12px;color:#666;text-transform:uppercase;margin-top:8px;letter-spacing:.5px}table{width:100%;border-collapse:collapse;margin:20px 0;font-size:12px}th{background:#f0f0f0;padding:12px;text-align:left;font-weight:bold;border-bottom:3px solid #0d1117}td{padding:10px;border-bottom:1px solid #ddd}tr:nth-child(even){background:#f9f9f9}.badge{display:inline-block;padding:4px 8px;border-radius:3px;font-size:11px;font-weight:bold;color:white}.badge.consolidator{background:#ff6b6f}.badge.distributor{background:#ffb454}.badge.relay{background:#6ec9e0;color:#000}.badge.exchange{background:#4ade95;color:#000}.disclaimer{background:#ffffcc;border-left:5px solid #ff9800;padding:18px;margin:30px 0;font-size:12px;line-height:1.7;border-radius:3px}.disclaimer strong{color:#e65100}code{background:#f0f0f0;padding:2px 5px;font-family:monospace;font-size:12px}.methodology{margin:20px 0}.method-item{margin:15px 0}.method-item h4{margin:10px 0 5px 0;font-size:13px;font-weight:bold}.method-item p{margin:5px 0;font-size:13px;color:#444}.print-instruction{background:#e3f2fd;border-left:4px solid #2196f3;padding:15px;margin:20px 0;font-size:12px}svg{page-break-inside:avoid}</style></head><body><div class="page"><h1>BLOCKCHAIN FORENSICS</h1><h2>INVESTIGATION REPORT</h2><div class="meta"><p><strong>Super Wallet Scanner Analysis</strong></p><p>Target Wallet: <code>${state.targetWallet || 'N/A'}</code></p><p>Date Range: ${state.dateRange ? `${state.dateRange.start} to ${state.dateRange.end}` : 'N/A'}</p><p>Generated: ${date}</p></div></div><div class="page"><div class="section"><h3>EXECUTIVE SUMMARY</h3><p>Analysis of <strong>${state.walletArray.length} connected wallets</strong> identified <strong>${consolidators.length} consolidators</strong>, <strong>${distributors.length} distributors</strong>, <strong>${relays.length} relays</strong>, and <strong>${exchanges.length} exchange-linked addresses</strong>. Total transaction volume: <strong>${formatNum(totalVolume)} FLR</strong>.</p></div><div class="section"><h3>KEY METRICS</h3><div class="metrics"><div class="metric"><div class="metric-num">${state.walletArray.length}</div><div class="metric-label">Wallets Analyzed</div></div><div class="metric"><div class="metric-num">${consolidators.length}</div><div class="metric-label">Consolidators</div></div><div class="metric"><div class="metric-num">${distributors.length}</div><div class="metric-label">Distributors</div></div><div class="metric"><div class="metric-num">${relays.length}</div><div class="metric-label">Relays</div></div></div></div></div><div class="page"><div class="section"><h3>NETWORK TOPOLOGY FLOWCHART</h3><p>Visual representation of wallet network structure showing fund movement patterns through consolidation, distribution, and relay layers.</p>${networkDiagram}</div></div><div class="page"><div class="section"><h3>CLASSIFIED WALLETS (Top 15 by Volume)</h3><table><thead><tr><th>Wallet Address</th><th>Classification</th><th>In Tx</th><th>Out Tx</th><th>Total Volume</th></tr></thead><tbody>${topWallets.map(w=>`<tr><td><code>${w.address.substring(0,12)}...${w.address.substring(34)}</code></td><td><span class="badge ${w.classifier}">${w.classifier.toUpperCase()}</span></td><td>${w.inCount}</td><td>${w.outCount}</td><td>${formatNum(w.totalValue)} FLR</td></tr>`).join('')}</tbody></table></div></div><div class="page"><div class="section"><h3>CLASSIFICATION METHODOLOGY</h3><div class="methodology"><div class="method-item"><h4 style="color:#ff6b6f">● CONSOLIDATOR</h4><p>Multiple inbound transactions funneling to single or few outbound. Indicates fund aggregation point. Pattern suggests collection of funds from multiple sources.</p></div><div class="method-item"><h4 style="color:#ffb454">● DISTRIBUTOR</h4><p>Single or few inbound transactions dispersing to multiple outbound. Indicates fund dispersal or splitting. Pattern suggests distribution from one wallet to many recipients.</p></div><div class="method-item"><h4 style="color:#6ec9e0">● RELAY</h4><p>Single inbound, single outbound with approximately same value. Indicates automated pass-through or bridging wallet. Minimal value change suggests pure forwarding.</p></div><div class="method-item"><h4 style="color:#4ade95">● EXCHANGE-LINKED</h4><p>High transaction volume with many counterparties. Indicates exchange hot wallet, bridge, or major liquidity provider. Pattern characteristic of institutional activity.</p></div></div><div class="disclaimer"><strong>⚠️ LIMITATIONS & DISCLAIMERS</strong><br><br>This analysis is based solely on blockchain transaction data from the specified date range and wallet set. Classification is heuristic-based and may contain false positives. This report does not constitute legal advice and should not be used as sole evidence in legal proceedings without additional verification.</div></div></div><div class="print-instruction"><strong>To save as PDF:</strong> Press Ctrl+P (Windows/Linux) or Cmd+P (Mac), then select "Save as PDF".</div></body></html>`;
   
-  const filename = `blockchain-forensics-${state.targetWallet?.substring(2, 10) || 'scan'}_${Date.now()}.pdf`;
+  // Create blob and download directly
+  const blob = new Blob([reportHTML], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `blockchain-forensics-${state.targetWallet?.substring(2, 10) || 'scan'}_${Date.now()}.html`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
   
-  const opt = {
-    margin: 10,
-    filename: filename,
-    image: { type: 'jpeg', quality: 0.98 },
-    html2canvas: { scale: 2 },
-    jsPDF: { orientation: 'portrait', unit: 'mm', format: 'a4' }
-  };
-  
-  try {
-    html2pdf().set(opt).from(html).save();
-    toast('Report generated - check your downloads!');
-  } catch(e) {
-    toast('PDF generation error: ' + e.message, true);
-  }
+  toast('✅ Report downloaded! Open it in your browser, then press Ctrl+P (or Cmd+P) to save as PDF');
 }
 
 document.getElementById('reportBtn').addEventListener('click', generateReport);
