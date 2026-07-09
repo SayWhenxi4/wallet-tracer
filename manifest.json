@@ -1,0 +1,20 @@
+{
+  "name": "Super Wallet Scanner - Blockchain Forensics",
+  "short_name": "Wallet Scanner",
+  "description": "Automatic wallet classification and transaction analysis for blockchain forensic investigations",
+  "start_url": "/super-wallet-scanner.html",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#0d1117",
+  "background_color": "#0d1117",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "app-icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"]
+}
