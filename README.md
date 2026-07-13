@@ -1,4 +1,4 @@
-Super Wallet Scanner
+Wallet Scanner
 Free, open-source blockchain forensics tool for Flare Network
 Trace fund flows across wallet networks, classify transaction patterns, and generate
 professional investigation reports.
