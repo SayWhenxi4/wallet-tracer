@@ -63,8 +63,7 @@ Quick Start
 Online
 Visit: super-wallet-scanner.netlify.app
 Locally
-1. Download this repo: git clone https://github.com/yourusername/super-wallet
-scanner
+1. Download this repo: git clone https://github.com/yourusername/super-wallet-scanner
 2. Open index.html in your browser
 3. Enter wallet address + date range
 4. Click START SCAN
