@@ -1,20 +1,37 @@
 {
-  "name": "Super Wallet Scanner - Blockchain Forensics",
-  "short_name": "Wallet Scanner",
-  "description": "Automatic wallet classification and transaction analysis for blockchain forensic investigations",
-  "start_url": "/super-wallet-scanner.html",
+  "name": "Wallet-Tracer",
+  "short_name": "Wallet-Tracer",
+  "description": "Blockchain forensics wallet tracing and investigation tool",
+  "start_url": "/app.html",
   "scope": "/",
   "display": "standalone",
-  "theme_color": "#0d1117",
-  "background_color": "#0d1117",
   "orientation": "portrait-primary",
+  "background_color": "#0b111c",
+  "theme_color": "#0b111c",
   "icons": [
     {
-      "src": "app-icon.svg",
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
-  ],
-  "categories": ["productivity", "utilities"]
+  ]
 }
