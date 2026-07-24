@@ -1,0 +1,25 @@
+{
+  "packageId": "app.walletscanner.twa",
+  "host": "wallet-scanner.app",
+  "name": "Wallet-Tracer",
+  "launcherName": "WalletTracer",
+  "display": "standalone",
+  "themeColor": "#000000",
+  "navigationColor": "#000000",
+  "backgroundColor": "#000000",
+  "enableNotifications": false,
+  "startUrl": "/app.html",
+  "iconUrl": "https://wallet-scanner.app/icon-512.png",
+  "maskableIconUrl": "https://wallet-scanner.app/icon-512.png",
+  "webManifestUrl": "https://wallet-scanner.app/manifest.json",
+  "fallbackType": "customtabs",
+  "fullScopeUrl": "https://wallet-scanner.app/",
+  "minSdkVersion": 21,
+  "orientation": "default",
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "walletscanner"
+  }
+}
