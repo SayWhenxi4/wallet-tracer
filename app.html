@@ -671,6 +671,55 @@
     </div>
   </details>
 
+  <details class="adv-panel">
+    <summary class="method-summary adv-summary">IC3 Complaint — what they'll ask, before you start <span class="tagbadge">read me first</span></summary>
+    <div class="adv-body">
+  <p class="card-hint" style="margin: 0 0 12px 4px; color: var(--text-2);">
+    ic3.gov (the FBI's Internet Crime Complaint Center) does <b>not</b> save your progress and has no file upload —
+    the session can time out after a few minutes idle, and once you close the confirmation page you cannot reopen it.
+    The single biggest tip from the DOJ's own filing guide: draft everything below in a separate document first, then
+    paste it all into the form in one sitting. This tool's exports (census CSV, feeder CSV, exhibits) already have most
+    of the numbers you'll need — pull from those rather than re-deriving anything by hand.
+  </p>
+  <p class="card-hint" style="margin: 0 0 12px 4px;"><b>Before you open the form, have these ready:</b></p>
+  <ul style="margin: 0 0 14px 20px; padding: 0; color: var(--text-2); font-size: 13px; line-height: 1.7;">
+    <li><b>Step 1 — Who's filing:</b> are you the victim, or filing on someone else's behalf?</li>
+    <li><b>Step 2 — Your contact info (all required):</b> name, address, city, country, zip, phone (digits only, no dashes), email.</li>
+    <li><b>Step 3 — Financial transactions (up to 10):</b> total loss amount (no $ or commas), and per‑transaction
+      <b>amount</b>, <b>date</b>, and <b>whether the money was sent</b> — all three are required for each entry you add.
+      This is exactly what your Victim Census CSV and Exchange Deposit Feeders CSV already give you, per feeder.</li>
+    <li><b>Step 4 — Subject info:</b> any contact detail you have on the scammer(s) — the form has no dedicated wallet-address
+      field, so plan to put addresses/tx hashes in Step 6 instead (see below).</li>
+    <li><b>Step 5 — Description of incident (3,500-character limit):</b> a short summary only — don't repeat numbers
+      you already entered elsewhere. Draft this offline first so you're not composing it against the clock.</li>
+    <li><b>Step 6 — Other information:</b> this is where wallet addresses, transaction hashes, and cross-chain bridge
+      details go, pasted as plain text — copy them straight from a Generate Exhibit or Exchange Deposit Feeders export.</li>
+    <li><b>Step 7 — Signature:</b> type your name, check the box, submit — then <b>immediately print/save the confirmation
+      page</b>. It's your only chance; the submission ID on it is your reference number going forward.</li>
+  </ul>
+  <label for="ic3DraftTemplate" style="font-size:11px; color:#97a4bb; text-transform:uppercase; letter-spacing:.06em;">Copyable draft template — fill in, then paste into the matching step above</label>
+  <textarea id="ic3DraftTemplate" readonly style="min-height:170px; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size:12.5px; margin-top:6px;">STEP 2 — Complainant
+Name:
+Address / City / Country / Zip:
+Phone (digits only):
+Email:
+
+STEP 3 — Financial transactions (repeat per transaction, max 10)
+Total loss amount (no $ or commas):
+  Transaction 1 — Amount:            Date:            Sent (Y/N):
+  Transaction 2 — Amount:            Date:            Sent (Y/N):
+
+STEP 4 — Subject info (scammer contact details, if any)
+
+
+STEP 5 — Description of incident (max 3,500 characters — short summary only)
+
+
+STEP 6 — Other information (paste wallet addresses / tx hashes / bridge details here)
+</textarea>
+    </div>
+  </details>
+
   <div class="save-row">
     <div class="save-row-line">
       <span class="save-status" id="saveStatus">Loading network…</span>
