@@ -1,0 +1,58 @@
+{
+  "name": "Wallet-Tracer",
+  "short_name": "Wallet-Tracer",
+  "description": "Blockchain forensics wallet tracing and investigation tool",
+  "id": "/app.html",
+  "start_url": "/app.html",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0b111c",
+  "theme_color": "#0b111c",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "lang": "en",
+  "categories": [
+    "finance"
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/mobile-1.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Wallet-Tracer network map on mobile"
+    },
+    {
+      "src": "/screenshots/desktop-1.png",
+      "sizes": "1280x800",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Wallet-Tracer network map and wallet detail panel"
+    }
+  ]
+}

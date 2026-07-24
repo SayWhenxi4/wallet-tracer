@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Wallet Scanner - Free, open-source blockchain forensics tool for Bitcoin, Flare, Songbird, Ethereum, Base, Polygon, Gnosis, Optimism, Arbitrum, and the XRP Ledger. Trace stolen funds by exact amount, dissect unverified scam contracts from raw bytecode, read XRPL destination tags, follow Bitcoin UTXO custody, classify wallet behavior, and generate law-enforcement-ready chain-of-custody exhibits. Runs entirely in your browser.">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="manifest.json">
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(()=>{});
+    });
+  }
+</script>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%230d1117' width='180' height='180'/><circle cx='90' cy='90' r='85' fill='none' stroke='%2300D9FF' stroke-width='8'/><path d='M 65 100 L 90 135 L 115 100' fill='none' stroke='%23C41E3A' stroke-width='10' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<title>Wallet Scanner — Free Blockchain Forensics for Theft Victims</title>
+<style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --dark-bg: #0F1419;
+            --dark-card: #1a202c;
+            --v-red: #C41E3A;
+            --accent-cyan: #00D9FF;
+            --text-light: #F0F4F8;
+            --text-muted: #A0AEC0;
+            --border-subtle: #2D3748;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', sans-serif;
+            background: var(--dark-bg);
+            color: var(--text-light);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* HERO SECTION WITH CODE BACKGROUND */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            background: linear-gradient(135deg, var(--dark-bg) 0%, #1a1f2e 100%);
+            position: relative;
+            overflow: hidden;
+            border-bottom: 2px solid var(--accent-cyan);
+        }
+
+        .hero-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+            opacity: 0.15;
+        }
+
+        .code-column {
+            position: absolute;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #00ff00;
+            white-space: pre;
+            line-height: 1.4;
+            animation: matrix-fall linear infinite;
+            writing-mode: vertical-rl;
+            text-orientation: mixed;
+        }
+
+        @keyframes matrix-fall {
+            0% {
+                transform: translateY(-100%);
+            }
+            100% {
+                transform: translateY(100vh);
+            }
+        }
+
+        .code-column:nth-child(1) { left: 5%; animation-duration: 12s; animation-delay: 0s; }
+        .code-column:nth-child(2) { left: 12%; animation-duration: 14s; animation-delay: 1s; }
+        .code-column:nth-child(3) { left: 19%; animation-duration: 13s; animation-delay: 2s; }
+        .code-column:nth-child(4) { left: 26%; animation-duration: 15s; animation-delay: 0.5s; }
+        .code-column:nth-child(5) { left: 33%; animation-duration: 12s; animation-delay: 1.5s; }
+        .code-column:nth-child(6) { left: 40%; animation-duration: 14s; animation-delay: 2.5s; }
+        .code-column:nth-child(7) { left: 47%; animation-duration: 13s; animation-delay: 0.8s; }
+        .code-column:nth-child(8) { left: 54%; animation-duration: 15s; animation-delay: 1.8s; }
+        .code-column:nth-child(9) { left: 61%; animation-duration: 12s; animation-delay: 2.2s; }
+        .code-column:nth-child(10) { left: 68%; animation-duration: 14s; animation-delay: 0.3s; }
+        .code-column:nth-child(11) { left: 75%; animation-duration: 13s; animation-delay: 1.3s; }
+        .code-column:nth-child(12) { left: 82%; animation-duration: 15s; animation-delay: 2.8s; }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(196, 30, 58, 0.15) 0%, transparent 70%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 0;
+        }
+
+        .hero-content {
+            max-width: 900px;
+            text-align: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        /* V SYMBOL HERO */
+        .v-symbol {
+            width: 180px;
+            height: 180px;
+            margin: 0 auto 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: pulse-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% {
+                filter: drop-shadow(0 0 20px rgba(196, 30, 58, 0.3));
+            }
+            50% {
+                filter: drop-shadow(0 0 40px rgba(196, 30, 58, 0.6));
+            }
+        }
+
+        .hero h1 {
+            font-size: clamp(2.5rem, 8vw, 4rem);
+            font-weight: 700;
+            margin-bottom: 20px;
+            letter-spacing: -1px;
+            line-height: 1.1;
+        }
+
+        .hero .tagline {
+            font-size: 1.3rem;
+            color: var(--text-muted);
+            margin-bottom: 60px;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            line-height: 1.5;
+        }
+
+        .cta-group {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 80px;
+        }
+
+        .cta-primary, .cta-secondary {
+            padding: 16px 40px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+
+        .cta-primary {
+            background: var(--v-red);
+            color: white;
+            box-shadow: 0 8px 24px rgba(196, 30, 58, 0.3);
+        }
+
+        .cta-primary:hover {
+            background: #a01830;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 32px rgba(196, 30, 58, 0.5);
+        }
+
+        .cta-secondary {
+            background: transparent;
+            color: var(--accent-cyan);
+            border: 2px solid var(--accent-cyan);
+        }
+
+        .cta-secondary:hover {
+            background: rgba(0, 217, 255, 0.1);
+            transform: translateY(-2px);
+        }
+
+        /* SECTIONS */
+        .landing > section {
+            padding: 80px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .lp-title {
+            font-size: 2.5rem;
+            margin-bottom: 60px;
+            text-align: center;
+            font-weight: 700;
+        }
+
+        .lp-title span {
+            color: var(--v-red);
+        }
+
+        /* LETTER SECTION */
+        .letter-section {
+            background: var(--dark-card);
+            border-left: 4px solid var(--v-red);
+            padding: 40px;
+            border-radius: 8px;
+            margin-bottom: 60px;
+        }
+
+        .letter-quote {
+            font-size: 1.1rem;
+            font-style: italic;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            line-height: 1.8;
+        }
+
+        .letter-link {
+            display: inline-block;
+            color: var(--accent-cyan);
+            text-decoration: none;
+            font-weight: 600;
+            padding: 8px 0;
+            border-bottom: 2px solid var(--accent-cyan);
+            transition: all 0.3s ease;
+        }
+
+        .letter-link:hover {
+            color: var(--v-red);
+            border-bottom-color: var(--v-red);
+        }
+
+        /* FEATURES */
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 40px;
+            margin-bottom: 60px;
+        }
+
+        .feature-card {
+            background: var(--dark-card);
+            padding: 40px;
+            border-radius: 8px;
+            border-top: 3px solid var(--accent-cyan);
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            border-top-color: var(--v-red);
+            transform: translateY(-4px);
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+
+        .feature-card h3 {
+            font-size: 1.3rem;
+            margin-bottom: 15px;
+            color: var(--accent-cyan);
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            line-height: 1.7;
+        }
+
+        /* VICTIM STORY */
+        .story-section {
+            background: linear-gradient(135deg, rgba(196, 30, 58, 0.1) 0%, rgba(0, 217, 255, 0.05) 100%);
+            border-radius: 8px;
+            padding: 60px 40px;
+            text-align: center;
+            margin-bottom: 60px;
+        }
+
+        .story-section h3 {
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            color: var(--v-red);
+        }
+
+        .story-section p {
+            font-size: 1.1rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin: 0 auto;
+            line-height: 1.8;
+        }
+
+        /* ACTIONS */
+        .actions-section {
+            background: var(--dark-card);
+            border-radius: 8px;
+            padding: 60px 40px;
+            text-align: center;
+        }
+
+        .actions-section h2 {
+            font-size: 2rem;
+            margin-bottom: 30px;
+        }
+
+        .action-steps {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 40px;
+            margin-bottom: 40px;
+        }
+
+        .step {
+            padding: 20px;
+        }
+
+        .step-num {
+            font-size: 2rem;
+            color: var(--v-red);
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .step p {
+            color: var(--text-muted);
+        }
+
+        /* FOOTER */
+        footer {
+            background: #000;
+            border-top: 1px solid var(--border-subtle);
+            padding: 40px 20px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            color: var(--v-red);
+        }
+
+        /* RESPONSIVE */
+        @media (max-width: 768px) {
+            .cta-group {
+                flex-direction: column;
+            }
+
+            .cta-primary, .cta-secondary {
+                width: 100%;
+            }
+
+            .landing > section {
+                padding: 40px 20px;
+            }
+
+            .lp-title {
+                font-size: 1.8rem;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .action-steps {
+                grid-template-columns: 1fr;
+            }
+        }
+</style>
+<style>
+  :root{
+    --bg: #0d1117;
+    --panel: #161c24;
+    --panel-2: #1c232d;
+    --line: #2d3644;
+    --text: #eef1f5;
+    --dim: #a7b0bd;
+    --high: #ff6b6f;
+    --med: #ffb454;
+    --low: #6ec9e0;
+    --confirmed: #ff6b6b;
+    --ok: #4ade95;
+    --mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin:0; padding:0; background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 16px; line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { padding-bottom: 60px; }
+
+  .case-header {
+    border-bottom: 1px solid var(--line);
+    padding: 24px 20px 18px;
+    background: linear-gradient(180deg, #131a22 0%, #0d1117 100%);
+  }
+  .case-header .tag {
+    font-size: 12.5px; letter-spacing: 0.14em; color: var(--low);
+    text-transform: uppercase; margin-bottom: 8px; font-weight: 600;
+  }
+  .case-header h1 {
+    margin: 0; font-size: 26px; letter-spacing: 0.01em; font-weight: 800;
+    color: #ffffff; font-family: var(--sans);
+  }
+  .case-header .sub {
+    margin-top: 8px; font-size: 15px; color: var(--dim); line-height: 1.55;
+  }
+  .case-header .sub b { color: var(--low); }
+
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 20px; }
+
+  section.panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    margin-top: 18px;
+    overflow: hidden;
+  }
+  .panel-head {
+    display:flex; align-items:center; justify-content:space-between;
+    gap: 10px; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--line);
+    background: var(--panel-2);
+  }
+  .panel-head .ph-title {
+    font-size: 13px; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--text); display:flex; align-items:center; gap:8px; font-weight: 700;
+  }
+  .panel-head .ph-title .num {
+    color: var(--low); font-weight:800;
+  }
+  .panel-body { padding: 16px; }
+
+  button {
+    font-family: var(--sans); font-size: 14.5px; font-weight: 600; letter-spacing: 0.01em;
+    background: #232c38; color: var(--text); border: 1px solid var(--line);
+    padding: 11px 16px; border-radius: 5px; cursor: pointer;
+    transition: border-color .15s, color .15s, background .15s;
+  }
+  button:hover { border-color: var(--low); color: #ffffff; background: #29323f; }
+  button.primary { background: #1c3f4a; border-color: var(--low); color: #d2f0f8; }
+  button.primary:hover { background: #234c59; }
+  button.danger { border-color: #6b3535; color: #ffb3b6; }
+  button.danger:hover { border-color: var(--high); color: #ffd4d5; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  button:disabled:hover { border-color: var(--line); color: var(--text); background: #232c38; }
+
+  textarea, input[type=text], input[type=date], input[type=number] {
+    font-family: var(--mono); font-size: 15px;
+    background: #0a0e13; color: var(--text); border: 1px solid var(--line);
+    border-radius: 5px; padding: 11px 12px; width: 100%;
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  label.field-label {
+    display:block; font-size: 12.5px; letter-spacing: 0.06em; color: var(--dim);
+    text-transform: uppercase; margin-bottom: 6px; font-weight: 600;
+  }
+
+  .row { display:flex; gap:10px; flex-wrap: wrap; align-items:flex-start; }
+  .row > * { flex: 1 1 auto; min-width: 200px; }
+
+  .badge {
+    display:inline-block; font-size: 12px; letter-spacing: 0.02em; font-weight: 700;
+    padding: 4px 9px; border-radius: 4px; text-transform: uppercase;
+    margin-right: 5px; margin-bottom: 4px; white-space: nowrap;
+  }
+  .badge.high { background: rgba(255,107,111,0.18); color: var(--high); border: 1px solid rgba(255,107,111,0.5); }
+  .badge.med  { background: rgba(255,180,84,0.18); color: var(--med); border: 1px solid rgba(255,180,84,0.5); }
+  .badge.low  { background: rgba(110,201,224,0.18); color: var(--low); border: 1px solid rgba(110,201,224,0.5); }
+  .badge.relay { background: rgba(110,201,224,0.18); color: var(--low); border: 1px solid rgba(110,201,224,0.5); }
+  .badge.consolidator { background: rgba(255,107,111,0.18); color: var(--high); border: 1px solid rgba(255,107,111,0.5); }
+  .badge.distributor { background: rgba(255,180,84,0.18); color: var(--med); border: 1px solid rgba(255,180,84,0.5); }
+  .badge.exchange { background: rgba(74,222,149,0.18); color: var(--ok); border: 1px solid rgba(74,222,149,0.5); }
+  .badge.deployer { background: rgba(180,142,255,0.18); color: #b48eff; border: 1px solid rgba(180,142,255,0.5); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+  thead th {
+    text-align: left; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--text); font-weight: 700; border-bottom: 1px solid var(--line); padding: 10px 8px; cursor: pointer;
+    white-space: nowrap;
+  }
+  thead th:hover { color: var(--low); }
+  tbody td { padding: 11px 8px; border-bottom: 1px solid #232c38; vertical-align: top; }
+  tbody tr:hover { background: #1b232d; }
+  .addr { font-family: var(--mono); font-size: 13px; color: #dbe2ea; word-break: break-all; }
+  .addr a { color: var(--low); text-decoration: none; }
+  .addr a:hover { text-decoration: underline; }
+  .score-cell { font-weight: 800; font-size: 16px; }
+  .details-toggle { color: var(--low); font-size: 13.5px; font-weight: 600; cursor: pointer; text-decoration: underline; }
+  .details-row td { background: #0e131a; font-size: 13.5px; color: var(--dim); padding: 12px 14px; }
+  .details-row ul { margin: 0; padding-left: 18px; }
+  .details-row li { margin-bottom: 5px; }
+
+  .stat-strip { display:flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  .stat-box {
+    flex: 1 1 110px; background: #0e131a; border: 1px solid var(--line);
+    border-radius: 5px; padding: 12px 14px;
+  }
+  .stat-box .n { font-size: 24px; font-weight: 800; color: #ffffff; }
+  .stat-box .l { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--dim); margin-top: 3px; font-weight: 600; }
+
+  .empty-state { color: var(--dim); font-size: 14.5px; text-align:center; padding: 22px 12px; }
+  .toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: #1c232d; border: 1px solid var(--low); color: var(--text);
+    padding: 11px 18px; border-radius: 6px; font-size: 14px; font-weight: 600; opacity: 0;
+    pointer-events: none; transition: opacity .2s; z-index: 100;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { border-color: var(--high); }
+
+  .spinner {
+    display: inline-block; width: 14px; height: 14px; border: 2px solid var(--line); 
+    border-top-color: var(--low); border-radius: 50%; animation: spin 0.6s linear infinite; 
+    margin-right: 8px; vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress-bar {
+    width: 100%; height: 4px; background: #0e131a; border-radius: 2px; 
+    margin-top: 8px; overflow: hidden;
+  }
+  .progress-bar .fill { height: 100%; background: var(--low); width: 0%; transition: width 0.3s; }
+
+  .tabs {
+    display: flex; gap: 0; border-bottom: 1px solid var(--line); margin-bottom: 12px;
+  }
+  .tab-btn {
+    flex: 0 1 auto; padding: 10px 14px; background: transparent; border: none;
+    border-bottom: 2px solid transparent; color: var(--dim); cursor: pointer;
+    font-size: 13px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { border-bottom-color: var(--low); color: var(--low); }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  .flare-link {
+    color: var(--low); text-decoration: none; font-weight: 600; cursor: pointer;
+  }
+  .flare-link:hover { text-decoration: underline; }
+
+  .results-container {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px;
+  }
+  @media (max-width: 1200px) { .results-container { grid-template-columns: 1fr; } }
+
+  #networkGraph {
+    background: #0e131a; border: 1px solid var(--line); border-radius: 6px; 
+    height: 500px; position: relative;
+  }
+  .graph-container { position: relative; width: 100%; height: 100%; }
+  
+  #graphSvg { width: 100%; height: 100%; }
+  
+  .node {
+    stroke: #2d3644; stroke-width: 2px; cursor: pointer; transition: all 0.2s;
+  }
+  .node.relay { fill: #6ec9e0; }
+  .node.consolidator { fill: #ff6b6f; }
+  .node.distributor { fill: #ffb454; }
+  .node.exchange { fill: #4ade95; }
+  .node.deployer { fill: #b48eff; }
+  .node.unknown { fill: #8b94a5; }
+  .node.target { stroke: var(--low); stroke-width: 3px; }
+  .node:hover { stroke-width: 3px; filter: drop-shadow(0 0 6px rgba(110,201,224,0.5)); }
+  .node.highlight { stroke-width: 3px; stroke: var(--low); }
+  .node.dimmed { opacity: 0.2; }
+
+  .link { stroke: #2d3644; stroke-width: 1.5px; opacity: 0.5; }
+  .link.inbound { stroke: #6ec9e0; }
+  .link.outbound { stroke: #ffb454; }
+  .link.highlight { stroke: var(--low); stroke-width: 2px; opacity: 0.9; }
+  .link.dimmed { opacity: 0.1; }
+
+  .node-label {
+    font-size: 11px; pointer-events: none; fill: var(--text); 
+    text-anchor: middle; dominant-baseline: middle; font-weight: 600;
+  }
+
+  .arrowhead { fill: #2d3644; }
+
+  .legend {
+    position: absolute; bottom: 12px; left: 12px; background: rgba(13,17,23,0.95); 
+    border: 1px solid var(--line); border-radius: 5px; padding: 10px 12px; 
+    font-size: 12px; z-index: 10;
+  }
+  .legend-item {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 5px;
+  }
+  .legend-item:last-child { margin-bottom: 0; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+
+  /* ===== MERGE BRIDGE: landing + tool ===== */
+  body { padding-bottom: 0; }
+
+</style>
+</head>
+<body>
+
+<!-- ============ LANDING ============ -->
+<main class="landing">
+    <section class="hero">
+        <div class="hero-background">
+            <div class="code-column">trace_wallet
+classify
+consolidate
+detect_pattern
+export_report
+validate
+law_enforcement
+resolve</div>
+            <div class="code-column">remember_me
+when_you_rise
+ask_nothing
+trust_God
+joseph_path
+faithfulness
+patience
+vindication</div>
+            <div class="code-column">0x7A2c91fE3
+0x3D8b40cA1
+0x9F1e6d227
+mapping
+forensics
+complete
+verified
+tracing</div>
+            <div class="code-column">function()
+flow_analysis
+behavior()
+exchange
+wallets
+filters
+submit()
+done</div>
+            <div class="code-column">no_demands
+only_truth
+speak_for_me
+when_free
+remember_faithfulness
+prison_to_palace
+divine_timing
+victory</div>
+            <div class="code-column">blockchain
+parse
+verify
+signatures
+network
+topology
+evidence
+found</div>
+            <div class="code-column">trace()
+classify()
+consolidate()
+distribute()
+relay()
+identify()
+mark()
+flag</div>
+            <div class="code-column">genesis_40_14
+cupbearer
+remember
+restore
+freedom
+justice
+favor
+released</div>
+            <div class="code-column">victim
+recovery
+path
+justice
+resolution
+success
+completed
+live</div>
+            <div class="code-column">analyze
+detect
+forensics
+blockchain
+transaction
+history
+complete
+verified</div>
+            <div class="code-column">flow
+funds
+stolen
+traced
+recovered
+justice
+served
+complete</div>
+            <div class="code-column">pattern
+detection
+scam
+exposed
+criminals
+caught
+assets
+returned</div>
+        </div>
+
+        <div class="hero-content">
+            <div class="v-symbol">
+                <svg viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg" style="width: 100%; height: 100%;">
+                    <defs>
+                        <style>
+                            .v-circle { stroke: #C41E3A; stroke-width: 20; fill: none; }
+                            .v-grid { stroke: #C41E3A; stroke-width: 4; opacity: 0.3; }
+                            .v-path { stroke: #C41E3A; stroke-width: 30; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+                        </style>
+                    </defs>
+                    <circle cx="250" cy="250" r="200" class="v-circle"/>
+                    <line x1="250" y1="50" x2="250" y2="450" class="v-grid"/>
+                    <line x1="50" y1="250" x2="450" y2="250" class="v-grid"/>
+                    <path d="M 150 140 L 250 360 L 350 140" class="v-path"/>
+                </svg>
+            </div>
+
+            <h1>Wallet Scanner</h1>
+            <p class="tagline">Free, open-source blockchain forensics tool. Trace your stolen funds. Help law enforcement. Recover what you can.</p>
+
+            <div class="cta-group">
+                <a href="app.html" class="cta-primary">Launch the Tool</a>
+                <a href="https://github.com/bvides-saywhen/super-wallet-scanner/blob/main/PERSONAL%20LETTER.pdf" target="_blank" class="cta-secondary">Read the Letter</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- INVESTIGATION REALITY CHECK -->
+    <section style="background: var(--dark-card); padding: 60px 20px; margin-top: 0; border-top: 2px solid var(--accent-cyan);">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <h2 class="lp-title">This Is <span>Real</span></h2>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 40px; margin-bottom: 60px;">
+                <div style="text-align: center;">
+                    <div style="font-size: 2.5rem; color: var(--v-red); font-weight: 700; margin-bottom: 10px;">8,306</div>
+                    <div style="color: var(--text-muted); font-size: 1rem;">stXRP stolen June 2026</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Via blockchain phishing exploit</div>
+                </div>
+
+                <div style="text-align: center;">
+                    <div style="font-size: 2.2rem; color: var(--v-red); font-weight: 700; margin-bottom: 10px;">Exchanges + FBI/IC3 + FinCEN</div>
+                    <div style="color: var(--text-muted); font-size: 1rem;">Reports filed</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Compliance cases with multiple exchanges, plus federal filings</div>
+                </div>
+
+                <div style="text-align: center;">
+                    <div style="font-size: 2.5rem; color: var(--v-red); font-weight: 700; margin-bottom: 10px;">8 <span style="font-size: 1.4rem; color: var(--text-muted); font-weight: 400;">EVM</span> + <span style="font-size: 1.5rem;">XRPL</span> + <span style="font-size: 1.5rem;">BTC</span></div>
+                    <div style="color: var(--text-muted); font-size: 1rem;">Blockchains supported</div>
+                    <div style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Three chain families, one investigation</div>
+                </div>
+            </div>
+
+            <div style="text-align: center; color: var(--text-muted); font-size: 1.1rem; line-height: 1.8; max-width: 700px; margin: 0 auto;">
+                <p>This tool was built from real investigation work. Cases have been filed with law enforcement. Evidence has been documented on the blockchain and preserved for authorities.</p>
+                <p style="margin-top: 20px; color: var(--accent-cyan);">You're not alone. Justice, though it takes time, is being pursued through proper channels.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- CASE STUDIES -->
+    <section style="background: var(--dark-bg); padding: 80px 20px; border-top: 2px solid var(--accent-cyan);">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <h2 class="lp-title">Proven on Real <span>Cases</span></h2>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 40px;">
+
+                <div class="feature-card" style="border-top-color: var(--v-red);">
+                    <h3>Firelight — Active Investigation (2026)</h3>
+                    <p>The theft that started this project: 8,306.686379 stXRP drained via phishing contract on Flare, June 16, 2026. Full custody was traced hop-by-hop — victim wallet → phishing contract → attacker redemption wallet → a three-way structuring split → a single consolidation hub → confirmed deposits at both OKX and Bybit hot wallets. The consolidation hub alone is one node in a mapped network of <strong>49,892 addresses</strong>, including <strong>7,551 wallets classified as likely victims</strong> of the same operation. Every hop is a citable, independently-verifiable transaction hash on Flarescan.</p>
+                    <p style="font-size: 0.9rem; color: var(--accent-cyan); margin-top: 15px; border-top: 1px solid var(--border-subtle); padding-top: 15px;">Filed: FBI IC3, FinCEN SAR, OKX, Bybit, Gate.io, Kraken, Flare Foundation.</p>
+                </div>
+
+                <div class="feature-card" style="border-top-color: var(--v-red);">
+                    <h3>Bitfinex 2016 Hack — Independent Verification</h3>
+                    <p>To validate the tool's Bitcoin engine, the 2016 Bitfinex hack was independently retraced from the hacker's own recipient address, with no reference to the DOJ's investigative work. The tool followed 567.2576 BTC from that address to the same government seizure address the DOJ named in its 2022 announcement — a match to the publicly reported ~567.5 BTC transfer, within the precision expected from proportional UTXO attribution. The seizure address terminus totaled ≈94,685 BTC in the tool's export against DOJ's reported 94,636–94,643 BTC recovered. The trace mapped 9,243 nodes and 9,448 edges, entirely from public blockchain data.</p>
+                    <p style="font-size: 0.9rem; color: var(--accent-cyan); margin-top: 15px; border-top: 1px solid var(--border-subtle); padding-top: 15px;">Nothing about this case was fed to the tool — it reconstructed the same DOJ-published outcome from scratch.</p>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+    <!-- WORD TO VICTIMS -->
+    <section style="background: var(--dark-bg); padding: 80px 20px; border-top: 2px solid var(--accent-cyan);">
+        <div style="max-width: 1200px; margin: 0 auto;">
+            <div class="letter-section">
+                <h2 style="margin-bottom: 20px; color: var(--v-red);">A Word to Victims</h2>
+                <p class="letter-quote">
+                    "If you're here because you lost funds to a phishing scam, theft, or fraud—you're not alone. This tool exists because someone experienced exactly what you're going through. Use it. Share it. And know that justice, though it takes time, is being pursued."
+                </p>
+                <a href="https://github.com/bvides-saywhen/super-wallet-scanner/blob/main/PERSONAL%20LETTER.pdf" target="_blank" class="letter-link">
+                    📄 Read the full letter
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <!-- WHAT IT DOES -->
+    <section>
+        <h2 class="lp-title">How It <span>Works</span></h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">🔍</div>
+                <h3>Trace the Amount, Not the Guess</h3>
+                <p>Start from the attacker's side: enter the phishing contract or attacker wallet and auto-trace its network. Anchor the trace to a specific token and amount, and it follows <em>only</em> the transfers matching that value — hop by hop through relays and consolidation hubs to the exchange — instead of guessing which transaction looks big enough.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3>Behavioral Classification</h3>
+                <p>Automatically classifies wallets by how they behave: consolidation hubs, pass-through relays, routers, likely victims, and exchange endpoints. See the shape of an operation instead of a hairball of addresses — and get warned when a pattern is only a lead, not a verdict.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🧬</div>
+                <h3>Contract Intel — No Source Required</h3>
+                <p>Most scam contracts are unverified, so explorers show you nothing but hex. This reads the raw bytecode anyway: hardcoded drain destinations, admin and fee-collector wallets, the contract's real function set, and whether it's a CREATE2 factory — meaning the operator sits one level up. It also calls the contract's own getters and scans storage to recover payout addresses set at runtime, the ones never baked into the code.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🔗</div>
+                <h3>Template Fingerprinting</h3>
+                <p>Every contract gets a bytecode fingerprint. Identical code means an identical fingerprint — so a fleet of scam contracts collapses into "one toolkit, many deployments." Load a deployer's full contract list and see at a glance which ones share an owner.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">📊</div>
+                <h3>Evidence-Grade Exports</h3>
+                <p>Chain-of-custody path documents, flagged-only or full-network exhibits with network diagrams, victim census CSV, exchange-deposit-feeder CSV, and XRPL destination-tag CSV. Formatted to attach to an IC3 complaint, a FinCEN SAR, or an exchange compliance request. Autosaves as you work, with full backup and restore.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🏷️</div>
+                <h3>XRP Ledger — Destination Tags</h3>
+                <p>Full XRPL support, not just EVM chains. And XRPL gives you something no EVM chain does: when funds are deposited to an exchange, the transaction carries a <strong>destination tag</strong> — the exchange's own identifier for the account being credited. On Ethereum you have to ask an exchange who owns a deposit address. Here that identifier is public on-ledger. Tags are read from every trace, drawn directly on the network map, and exported to CSV for compliance requests.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">₿</div>
+                <h3>Bitcoin — UTXO Custody Tracing</h3>
+                <p>Bitcoin doesn't work like an account-based chain, so it gets its own engine: legacy (1...), P2SH (3...), bech32 (bc1q...), and taproot (bc1p...) addresses, read via public explorers with no API key required. Change outputs are detected and excluded from custody chains. Multi-input, multi-output transactions are apportioned by <strong>proportional attribution</strong> — exact for simple splits, a documented approximation for complex consolidations — so a stolen-coin trail doesn't silently inherit unrelated funds. Volume guards keep large exchange-hub transactions from freezing the graph on mobile.</p>
+                <p style="font-size: 0.9rem; color: var(--accent-cyan); margin-top: 15px; border-top: 1px solid var(--border-subtle); padding-top: 15px;">Independently verified against the 2016 Bitfinex hack — see the case study below.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🔐</div>
+                <h3>100% Private</h3>
+                <p>Everything runs in your browser. No data sent to servers. No registration required. Your investigation stays yours.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>Fast & Free</h3>
+                <p>Single wallets scan in 30-60 seconds, phishing networks in about 5 minutes, full multi-chain traces in about 20 minutes. MIT licensed. Open source. Free forever.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🌍</div>
+                <h3>Multi-Chain</h3>
+                <p>Three chain families in one tool. <strong>Eight EVM chains</strong> — Flare, Songbird, Ethereum, Base, Polygon, Gnosis Chain, Optimism, and Arbitrum One — plus the <strong>XRP Ledger</strong>, account-based with its own address format and no smart contracts, plus <strong>Bitcoin</strong>, a UTXO chain with its own custody model entirely. Contract lookups probe every EVM chain automatically, so a contract is found wherever it actually lives. Built by someone who traced their own stolen stXRP.</p>
+                <p style="font-size: 0.9rem; color: var(--accent-cyan); margin-top: 15px; border-top: 1px solid var(--border-subtle); padding-top: 15px;">More chains added as the tool grows.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- HOW TO USE -->
+    <section>
+        <h2 class="lp-title">Get <span>Started</span></h2>
+        <div class="actions-section">
+            <div class="action-steps">
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <p><strong>Enter Address or Contract</strong> Phishing contract, attacker wallet, or an unverified contract to dissect</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">2</div>
+                    <p><strong>Auto-Trace Network</strong> Tool maps the full fund flow</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">3</div>
+                    <p><strong>Log Victim Details</strong> Wallet, amount stolen, theft date</p>
+                </div>
+                <div class="step">
+                    <div class="step-num">4</div>
+                    <p><strong>Export & File</strong> Report for law enforcement, FBI/IC3, or FinCEN</p>
+                </div>
+            </div>
+
+            <a href="app.html" class="cta-primary" style="margin-right: 20px;">Launch Tool Now</a>
+            <a href="https://github.com/bvides-saywhen/super-wallet-scanner" target="_blank" class="cta-secondary">View on GitHub</a>
+        </div>
+    </section>
+</main>
+
+<!-- ============ THE TOOL ============ -->
+</body>
+</html>
