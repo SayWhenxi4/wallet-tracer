@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.walletscanner.twa",
+      "sha256_cert_fingerprints": [
+        "52:63:83:0A:42:BA:4B:C4:23:A7:C2:4F:50:F5:99:BF:C0:AB:57:06:04:C9:24:F9:BE:EE:C9:3C:29:D6:40:A4"
+      ]
+    }
+  }
+]
