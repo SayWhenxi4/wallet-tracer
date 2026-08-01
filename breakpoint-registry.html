@@ -1253,9 +1253,20 @@ async function ensureDropboxShareLink(token) {
         body: JSON.stringify({ path: DROPBOX_FILE_PATH, direct_only: true })
       });
       const listData = await listResp.json();
-      if (listResp.ok && listData.links && listData.links.length) url = listData.links[0].url;
+      if (listResp.ok && listData.links && listData.links.length) {
+        url = listData.links[0].url;
+      } else {
+        showToast('Saved, but couldn\'t retrieve the existing share link: ' + (listData.error_summary || listResp.status));
+        return;
+      }
+    } else {
+      // Surface the real reason instead of failing silently - e.g. a missing
+      // "sharing.write" permission on the Dropbox app shows up here as a
+      // 403/insufficient_scope error, not a generic unexplained no-op.
+      showToast('Saved, but the share link failed: ' + (createData.error_summary || createResp.status + ' ' + createResp.statusText));
+      return;
     }
-    if (!url) return;
+    if (!url) { showToast('Saved, but no share link URL was returned'); return; }
     // Dropbox's default shared link opens a preview page, not raw content.
     // Swapping dl=0 for dl=1 (or adding it) makes it a direct-download URL
     // that a plain fetch() can read straight into JSON.
@@ -1263,7 +1274,7 @@ async function ensureDropboxShareLink(token) {
     document.getElementById('dropboxShareLink').textContent = directUrl;
     document.getElementById('dropboxShareLinkBox').style.display = 'block';
     localStorage.setItem('bp_dropbox_share_url', directUrl);
-  } catch (err) { /* share-link creation failing shouldn't block the save itself */ }
+  } catch (err) { showToast('Saved, but share link setup hit an error: ' + err.message); }
 }
 
 function copyDropboxLink() {
