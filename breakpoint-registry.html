@@ -137,6 +137,23 @@
   .toast.show{ opacity:1; }
   .empty{ padding:30px; text-align:center; color:var(--text-dim); font-size:12.5px; }
   .flag{ color:var(--red); font-size:10.5px; margin-top:3px; }
+/* ---------- Frequently-used control highlight: calm static gold ring ---------- */
+.gold-ring {
+  border: 1.5px solid var(--amber) !important;
+  box-shadow: 0 0 0 3px rgba(224,164,88,0.15), 0 0 14px rgba(224,164,88,0.25);
+}
+
+/* ---------- Primary action highlight: animated spinning rainbow ring ---------- */
+.ring-wrap { position: relative; padding: 1.3px; border-radius: 12px; margin-top: 22px;
+  background: conic-gradient(from var(--ring-angle),#ff3b30,#ff8a1e,#ffd60a,#35d07f,#34c7ff,#4a7bff,#ff3b30);
+  animation: bpspin 4.5s linear infinite; }
+.ring-wrap::before { content:""; position:absolute; inset:-2px; border-radius:15px;
+  background:inherit; filter:blur(11px); opacity:.35; z-index:-1; animation:inherit; }
+.ring-wrap > .ring-in { background: var(--panel); border-radius: 11px; padding: 16px 18px; }
+@keyframes bpspin { to { --ring-angle: 360deg; } }
+@media (prefers-reduced-motion: reduce) {
+  .ring-wrap, .ring-wrap::before { animation: none; --ring-angle: 45deg; }
+}
 </style>
 </head>
 <body>
@@ -177,7 +194,7 @@
   </div>
   <div class="note" id="filteredCount" style="margin:-6px 0 10px; font-size:11px;"></div>
 
-  <div id="tableCollapseHeader" onclick="toggleTableCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none;">
+  <div id="tableCollapseHeader" class="gold-ring" onclick="toggleTableCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border-radius:6px 6px 0 0; user-select:none;">
     <span id="tableCollapseArrow" style="font-family:var(--mono); color:var(--brass);">&#9660;</span>
     <span style="font-size:12px; color:var(--text-2);">Registry entries</span>
     <span id="tableCollapseCount" style="font-size:11px; color:var(--text-dim); margin-left:auto;"></span>
@@ -199,7 +216,9 @@
     <div class="empty" id="emptyMsg" style="display:none">No entries match this filter.</div>
   </div>
 
-  <div class="panel">
+  <div class="ring-wrap">
+  <div class="ring-in">
+  <div class="panel" style="margin:0; border:none;">
     <h3><span class="dot"></span>Add entry</h3>
     <div class="form-grid">
       <div class="full">
@@ -244,6 +263,8 @@
       <button onclick="addEntry()">Add to registry</button>
     </div>
   </div>
+  </div>
+  </div>
 
   <div class="panel">
     <h3><span class="dot"></span>Import / export</h3>
@@ -273,8 +294,13 @@
     </div>
   </div>
 
-  <div class="panel">
-    <h3><span class="dot"></span>Cloud sync (Dropbox)</h3>
+  <div id="dropboxCollapseHeader" onclick="toggleDropboxCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none; margin-top:22px;">
+    <span id="dropboxCollapseArrow" style="font-family:var(--mono); color:var(--amber);">&#9658;</span>
+    <span style="font-size:12px; color:var(--text);">Cloud sync (Dropbox)</span>
+    <span style="font-size:10.5px; color:var(--text-dim);">&mdash; admin feature, not needed just to browse the registry</span>
+  </div>
+  <div id="dropboxCollapseBody" style="display:none;">
+  <div class="panel" style="margin-top:0; border-top:none; border-radius:0 0 6px 6px;">
     <div class="note" style="margin-bottom:12px;">Saves the registry to a file in your own Dropbox instead of a file on one specific computer — works from any device you sign into. Once saved, a public read-only link lets OTHER devices (including phones, and Wallet-Tracer's boundary registry sync) pull the current data automatically, with no sign-in needed just to read it.</div>
     <div class="note" id="dropboxStatus" style="margin-bottom:12px; color:var(--amber);">Not connected.</div>
     <div class="btn-row" id="dropboxSignedOutRow">
@@ -290,6 +316,7 @@
       <code id="dropboxShareLink" style="word-break:break-all; font-size:12px;"></code>
       <button class="ghost" style="margin-top:6px;" onclick="copyDropboxLink()">Copy link</button>
     </div>
+  </div>
   </div>
 
 </main>
@@ -688,6 +715,7 @@ async function init(){
   }
   render();
   toggleTableCollapse(localStorage.getItem('bp_table_collapsed') === '1');
+  toggleDropboxCollapse(localStorage.getItem('bp_dropbox_collapsed') !== '0'); // default collapsed - only expand if explicitly reopened before
   tryRestoreMasterHandle();
   await handleDropboxRedirect(); // no-op unless we just came back from Dropbox's sign-in page
   await updateDropboxUI();
@@ -724,6 +752,15 @@ function toggleTableCollapse(forceState) {
   body.style.display = isCollapsed ? 'none' : '';
   arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;'; // right-pointing when collapsed, down when open
   localStorage.setItem('bp_table_collapsed', isCollapsed ? '1' : '0');
+}
+
+function toggleDropboxCollapse(forceState) {
+  const body = document.getElementById('dropboxCollapseBody');
+  const arrow = document.getElementById('dropboxCollapseArrow');
+  const isCollapsed = forceState !== undefined ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+  localStorage.setItem('bp_dropbox_collapsed', isCollapsed ? '1' : '0');
 }
 
 // A starter set of common chain names, so the datalist below has good
