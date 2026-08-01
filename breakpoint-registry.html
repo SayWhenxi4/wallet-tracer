@@ -150,6 +150,7 @@
 .ring-wrap::before { content:""; position:absolute; inset:-2px; border-radius:15px;
   background:inherit; filter:blur(11px); opacity:.35; z-index:-1; animation:inherit; }
 .ring-wrap > .ring-in { background: var(--panel); border-radius: 11px; padding: 16px 18px; }
+@property --ring-angle { syntax: '<angle>'; initial-value: 0deg; inherits: false; }
 @keyframes bpspin { to { --ring-angle: 360deg; } }
 @media (prefers-reduced-motion: reduce) {
   .ring-wrap, .ring-wrap::before { animation: none; --ring-angle: 45deg; }
