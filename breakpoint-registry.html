@@ -208,7 +208,8 @@
       </div>
       <div>
         <label>Chain</label>
-        <input type="text" id="f_chain" placeholder="ethereum, solana, arbitrum...">
+        <select id="f_chain"></select>
+        <input type="text" id="f_chain_other" placeholder="Type the chain name..." style="display:none; margin-top:6px;">
       </div>
       <div>
         <label>Type</label>
@@ -252,6 +253,7 @@
       <button class="ghost" onclick="document.getElementById('importFile').click()">Import JSON</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
       <button class="ghost" onclick="resetToSeed()">Reset to seed data</button>
+      <button class="ghost" onclick="normalizeChainCasing()">Fix chain name casing</button>
     </div>
   </div>
 
@@ -325,7 +327,7 @@ function computeKey(e) {
 function validateEntry(raw) {
   if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not an object' };
   const address = String(raw.address || '').trim();
-  const chain = String(raw.chain || '').trim();
+  const chain = String(raw.chain || '').trim().toLowerCase();
   if (!address) return { ok: false, reason: 'missing address' };
   if (!chain) return { ok: false, reason: 'missing chain' };
   if (address.length > MAX_FIELD_LEN.address) return { ok: false, reason: 'address too long' };
@@ -724,6 +726,12 @@ function toggleTableCollapse(forceState) {
   localStorage.setItem('bp_table_collapsed', isCollapsed ? '1' : '0');
 }
 
+// A starter set of common chain names, so the datalist below has good
+// suggestions even before any entries exist for them yet (e.g. someone's
+// very first "flare" entry still gets the correct spelling suggested,
+// rather than only learning from mistakes already in the data).
+const CANONICAL_CHAINS = ['ethereum', 'bitcoin', 'flare', 'songbird', 'solana', 'xrpl', 'arbitrum', 'polygon', 'bsc', 'avalanche', 'optimism', 'base'];
+
 function render(){
   const chainSelect = document.getElementById('chainFilter');
   const activeChain = chainSelect.value;
@@ -737,6 +745,16 @@ function render(){
     chainSelect.innerHTML = '<option value="all">All chains</option>' + chains.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
     chainSelect.value = chains.includes(activeChain) ? activeChain : 'all';
   }
+
+  // Same source of truth for the Add-entry chain dropdown: canonical names
+  // plus anything already in the data, so the common cases are pick-not-type
+  // (eliminating typos outright) while an "Other" option still allows adding
+  // a genuinely new chain that isn't in the list yet.
+  const addChainSelect = document.getElementById('f_chain');
+  const prevAddChainValue = addChainSelect.value;
+  const addChainOptions = [...new Set([...CANONICAL_CHAINS, ...chains])].sort();
+  addChainSelect.innerHTML = addChainOptions.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('') + '<option value="__other__">Other\u2026</option>';
+  if (addChainOptions.includes(prevAddChainValue) || prevAddChainValue === '__other__') addChainSelect.value = prevAddChainValue;
 
   const list = getFilteredList();
   const q = document.getElementById('search').value.trim();
@@ -840,10 +858,39 @@ function copyAddr(el){
   showToast('Address copied');
 }
 
+// Simple edit-distance check — catches likely misspellings like "etherium"
+// or "flarechain" by comparing against canonical names and whatever's
+// already in the registry, without needing a hardcoded list of every typo.
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j-1], dp[i-1][j], dp[i][j-1]);
+    }
+  }
+  return dp[m][n];
+}
+function findCloseChainMatch(typedChain) {
+  const known = [...new Set([...CANONICAL_CHAINS, ...entries.map(e => e.chain)])];
+  if (known.includes(typedChain) || typedChain.length < 3) return null; // exact match, or too short to meaningfully fuzzy-match
+  let best = null, bestDist = Infinity;
+  for (const k of known) {
+    const d = levenshtein(typedChain, k);
+    if (d < bestDist) { bestDist = d; best = k; }
+  }
+  return (best && bestDist <= 2) ? best : null;
+}
+
 async function addEntry(){
+  const chainSelectVal = document.getElementById('f_chain').value;
+  const isOther = chainSelectVal === '__other__';
+  const rawChain = isOther ? document.getElementById('f_chain_other').value.trim() : chainSelectVal;
   const raw = {
     address: document.getElementById('f_addr').value.trim(),
-    chain: document.getElementById('f_chain').value.trim(),
+    chain: rawChain,
     type: document.getElementById('f_type').value,
     protocol: document.getElementById('f_protocol').value.trim(),
     confidence: document.getElementById('f_confidence').value,
@@ -851,11 +898,24 @@ async function addEntry(){
   };
   const v = validateEntry(raw);
   if (!v.ok) { showToast(`Not saved — ${v.reason}`); return; }
+
+  // Only the free-text "Other" path can contain a typo — anything picked
+  // from the dropdown is by definition an exact, already-correct spelling.
+  if (isOther) {
+    const suggestion = findCloseChainMatch(v.entry.chain);
+    if (suggestion) {
+      const useSuggestion = confirm(`You typed chain "${v.entry.chain}" \u2014 did you mean "${suggestion}"?\n\nOK = use "${suggestion}"\nCancel = keep "${v.entry.chain}" as a genuinely new chain name`);
+      if (useSuggestion) v.entry.chain = suggestion;
+    }
+  }
+
   const key = computeKey(v.entry);
   const merged = mergeWithHistory(entryMap.get(key), v.entry, 'manual');
   await putEntry(merged);
   entries = await getAll();
   ['f_addr','f_protocol','f_notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f_chain_other').value = '';
+  document.getElementById('f_chain_other').style.display = 'none';
   render();
   showToast(entryMap.has(key) ? 'Entry updated (prior version kept in history)' : 'Entry added');
 }
@@ -1353,6 +1413,40 @@ async function resetToSeed(){
   showToast('Reset to seed data');
 }
 
+// One-time cleanup for entries already stored before validateEntry() started
+// lowercasing chain names — e.g. "Ethereum" and "ethereum" existing as two
+// separate values instead of one, which is exactly what showed up as a
+// duplicate option in the chain filter dropdown. New entries going forward
+// are already normalized at validation time; this fixes what's already sitting
+// in storage from before that fix existed.
+async function normalizeChainCasing(){
+  const toFix = entries.filter(e => e.chain !== e.chain.toLowerCase());
+  if (!toFix.length) { showToast('All chain names are already lowercase \u2014 nothing to fix.'); return; }
+
+  let fixedCount = 0, skippedCount = 0;
+  const tx = db.transaction(STORE, 'readwrite');
+  const store = tx.objectStore(STORE);
+  for (const e of toFix) {
+    const oldKey = e._key || computeKey(e);
+    const normalized = { ...e, chain: e.chain.toLowerCase() };
+    const newKey = computeKey(normalized);
+    if (entryMap.has(newKey) && newKey !== oldKey) {
+      // A correctly-cased entry for this same chain+address already exists —
+      // don't silently overwrite it; leave this one for manual review instead.
+      skippedCount++;
+      continue;
+    }
+    normalized._key = newKey;
+    store.delete(oldKey);
+    store.put(normalized);
+    fixedCount++;
+  }
+  await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
+  entries = await getAll();
+  render();
+  showToast(`Fixed casing on ${fixedCount} entr${fixedCount === 1 ? 'y' : 'ies'}${skippedCount ? `, skipped ${skippedCount} (would collide with an existing correctly-cased entry \u2014 review manually)` : ''}.`);
+}
+
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -1363,6 +1457,9 @@ function showToast(msg){
 
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('chainFilter').addEventListener('change', render);
+document.getElementById('f_chain').addEventListener('change', (e) => {
+  document.getElementById('f_chain_other').style.display = e.target.value === '__other__' ? 'block' : 'none';
+});
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => {
     document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
