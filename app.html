@@ -590,11 +590,10 @@
           <button type="button" class="small" onclick="connectBoundaryMasterFile()">Connect master file…</button>
           <button type="button" class="small" onclick="reconnectBoundaryMasterFile()">Reconnect</button>
         </div>
-        <div style="font-size:9px; color:var(--text-2); margin:8px 0 4px;">Or, works on any device including mobile — paste a BREAKPOINT public Dropbox link (Cloud sync panel &rarr; Save to Dropbox):</div>
+        <div style="font-size:9px; color:var(--text-2); margin:8px 0 4px;">Or, works on any device including mobile — export from BREAKPOINT (Cloud sync &rarr; Save to Dropbox, or Export JSON), download that file to this device, then import it here:</div>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
-          <input type="text" id="boundaryDropboxUrlInput" placeholder="https://www.dropbox.com/scl/fi/.../breakpoint-master.json?..." style="flex:1; min-width:180px; font-size:10px;">
-          <button type="button" class="small" onclick="saveBoundaryDropboxUrl()">Save</button>
-          <button type="button" class="small" onclick="forgetBoundaryDropboxUrl()">Forget</button>
+          <input type="file" id="boundaryImportFileInput" accept="application/json,.json" style="display:none" onchange="importBoundaryRegistryFile(event)">
+          <button type="button" class="small" onclick="document.getElementById('boundaryImportFileInput').click()">Import registry file&hellip;</button>
         </div>
       </div>
       <div class="field ring-wrap" style="flex:1">
@@ -1487,85 +1486,56 @@ function updateBoundaryStatusUI(text) {
 // directly, no password step. If no file is connected yet, or permission
 // needs re-granting, this surfaces a status line rather than failing silently.
 //
-// Two independent sources, tried in this order:
-//  1. A locally connected file (File System Access API) — Chrome/Edge desktop
-//     only, but doesn't need a network request once connected.
-//  2. A public Dropbox share link (plain fetch(), no auth) — works on EVERY
-//     browser including mobile Safari and Chrome Android, which is the whole
-//     reason this fallback exists. Whichever one is configured runs; if BOTH
-//     are configured, the local file wins (it's what's actually being edited).
+// Only source this function itself checks: a locally connected file (File
+// System Access API) — Chrome/Edge desktop only. Everywhere else (mobile,
+// Firefox, Safari) has no automatic path — see importBoundaryRegistryFile()
+// below for the manual alternative, which is a one-time action, not
+// something this auto-check function can do on its own.
 async function autoSyncBoundaryRegistryIfChanged() {
-  if (FS_ACCESS_SUPPORTED_BOUNDARY) {
-    if (!boundaryMasterHandle) { try { boundaryMasterHandle = await loadBoundaryHandleRef(); } catch (e) {} }
-    if (boundaryMasterHandle) {
-      let perm;
-      try { perm = await boundaryMasterHandle.queryPermission({ mode: "read" }); } catch (e) { updateBoundaryStatusUI("Boundary registry: connection lost (file moved or deleted?)."); return; }
-      if (perm !== "granted") { updateBoundaryStatusUI("Boundary registry: click Reconnect in Settings (browser requires a click to re-grant access)."); return; }
-      try {
-        const file = await boundaryMasterHandle.getFile();
-        const lastSynced = parseInt(localStorage.getItem("bt_boundary_last_mtime") || "0", 10);
-        if (file.lastModified === lastSynced) { updateBoundaryStatusUI(`Boundary registry: up to date (${file.name}).`); return; }
-        updateBoundaryStatusUI("Boundary registry: change detected, syncing\u2026");
-        const text = await file.text();
-        if (!text.trim()) { updateBoundaryStatusUI("Boundary registry: master file is empty."); return; }
-        const data = JSON.parse(text);
-        const list = Array.isArray(data) ? data : (data.registry || []);
-        await syncBoundaryRegistry(list);
-        localStorage.setItem("bt_boundary_last_mtime", String(file.lastModified));
-        updateBoundaryStatusUI(`Boundary registry: synced ${list.length.toLocaleString()} entries from ${file.name}.`);
-        return;
-      } catch (err) {
-        updateBoundaryStatusUI("Boundary registry: sync failed \u2014 file changed unexpectedly or couldn't be read.");
-        return;
-      }
-    }
-  }
-
-  // No local file connected (or this browser can't do that at all) — fall
-  // back to a public Dropbox link, if one's been saved.
-  const dropboxUrl = localStorage.getItem("bt_boundary_dropbox_url");
-  if (!dropboxUrl) {
-    updateBoundaryStatusUI(FS_ACCESS_SUPPORTED_BOUNDARY
-      ? "Boundary registry: not connected. Use Settings to connect your BREAKPOINT master file, or paste a Dropbox link."
-      : "Boundary registry: not connected. Paste a BREAKPOINT Dropbox link in Settings (direct file access isn't supported on this browser).");
-    return;
-  }
+  if (!FS_ACCESS_SUPPORTED_BOUNDARY) { updateBoundaryStatusUI("Boundary registry: not connected. Direct file access isn't supported on this browser \u2014 use \"Import registry file\u2026\" instead."); return; }
+  if (!boundaryMasterHandle) { try { boundaryMasterHandle = await loadBoundaryHandleRef(); } catch (e) {} }
+  if (!boundaryMasterHandle) { updateBoundaryStatusUI("Boundary registry: not connected. Use Settings to connect your BREAKPOINT master file, or use \"Import registry file\u2026\"."); return; }
+  let perm;
+  try { perm = await boundaryMasterHandle.queryPermission({ mode: "read" }); } catch (e) { updateBoundaryStatusUI("Boundary registry: connection lost (file moved or deleted?)."); return; }
+  if (perm !== "granted") { updateBoundaryStatusUI("Boundary registry: click Reconnect in Settings (browser requires a click to re-grant access)."); return; }
   try {
-    updateBoundaryStatusUI("Boundary registry: checking Dropbox link\u2026");
-    const resp = await fetch(dropboxUrl, { cache: "no-store" });
-    if (!resp.ok) { updateBoundaryStatusUI(`Boundary registry: Dropbox link returned an error (${resp.status}).`); return; }
-    const text = await resp.text();
-    if (!text.trim()) { updateBoundaryStatusUI("Boundary registry: Dropbox file is empty."); return; }
+    const file = await boundaryMasterHandle.getFile();
+    const lastSynced = parseInt(localStorage.getItem("bt_boundary_last_mtime") || "0", 10);
+    if (file.lastModified === lastSynced) { updateBoundaryStatusUI(`Boundary registry: up to date (${file.name}).`); return; }
+    updateBoundaryStatusUI("Boundary registry: change detected, syncing\u2026");
+    const text = await file.text();
+    if (!text.trim()) { updateBoundaryStatusUI("Boundary registry: master file is empty."); return; }
     const data = JSON.parse(text);
-    // Use the export's own "exported" timestamp as the change-detection
-    // signal, since a fetch() response has no local file-modified time to
-    // compare against the way the File System Access path does above.
-    const exportedAt = data.exported || "";
-    const lastSyncedExport = localStorage.getItem("bt_boundary_last_dropbox_export") || "";
-    if (exportedAt && exportedAt === lastSyncedExport) { updateBoundaryStatusUI("Boundary registry: up to date (Dropbox)."); return; }
     const list = Array.isArray(data) ? data : (data.registry || []);
     await syncBoundaryRegistry(list);
-    if (exportedAt) localStorage.setItem("bt_boundary_last_dropbox_export", exportedAt);
-    updateBoundaryStatusUI(`Boundary registry: synced ${list.length.toLocaleString()} entries from Dropbox.`);
+    localStorage.setItem("bt_boundary_last_mtime", String(file.lastModified));
+    updateBoundaryStatusUI(`Boundary registry: synced ${list.length.toLocaleString()} entries from ${file.name}.`);
   } catch (err) {
-    updateBoundaryStatusUI("Boundary registry: Dropbox sync failed \u2014 " + err.message);
+    updateBoundaryStatusUI("Boundary registry: sync failed \u2014 file changed unexpectedly or couldn't be read.");
   }
 }
 
-function saveBoundaryDropboxUrl() {
-  const input = document.getElementById("boundaryDropboxUrlInput");
-  const url = (input.value || "").trim();
-  if (!url) { showError("Paste a Dropbox link first."); return; }
-  if (!/^https:\/\/(www\.)?dropbox\.com\//.test(url)) { showError("That doesn't look like a Dropbox link."); return; }
-  localStorage.setItem("bt_boundary_dropbox_url", url);
-  localStorage.removeItem("bt_boundary_last_dropbox_export"); // force a sync on this new connection
-  autoSyncBoundaryRegistryIfChanged();
-}
-function forgetBoundaryDropboxUrl() {
-  localStorage.removeItem("bt_boundary_dropbox_url");
-  localStorage.removeItem("bt_boundary_last_dropbox_export");
-  document.getElementById("boundaryDropboxUrlInput").value = "";
-  autoSyncBoundaryRegistryIfChanged();
+// Manual alternative for any browser without the File System Access API
+// (every mobile browser, Firefox, Safari). Reads a file the person picked
+// themselves from local storage — no network request at all, so there's no
+// CORS boundary to cross. Export from BREAKPOINT, get the file onto this
+// device however (Dropbox app, email, AirDrop, etc.), then pick it here.
+async function importBoundaryRegistryFile(event) {
+  const file = event.target.files[0];
+  event.target.value = ""; // allow re-importing the same filename later without it being a no-op
+  if (!file) return;
+  try {
+    updateBoundaryStatusUI("Boundary registry: reading file\u2026");
+    const text = await file.text();
+    if (!text.trim()) { updateBoundaryStatusUI("Boundary registry: that file is empty."); return; }
+    const data = JSON.parse(text);
+    const list = Array.isArray(data) ? data : (data.registry || []);
+    if (!list.length) { updateBoundaryStatusUI("Boundary registry: no entries found in that file."); return; }
+    await syncBoundaryRegistry(list);
+    updateBoundaryStatusUI(`Boundary registry: imported ${list.length.toLocaleString()} entries from ${file.name}.`);
+  } catch (err) {
+    updateBoundaryStatusUI("Boundary registry: import failed \u2014 " + err.message);
+  }
 }
 
 async function connectBoundaryMasterFile() {
@@ -10057,7 +10027,6 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAll();
   loadConfirmedExchanges().then(() => renderAll()); // async — re-render once the durable exchange registry lands
   loadConfirmedContracts().then(() => renderAll()); // async — re-render once the durable contract registry lands
-  { const savedDropboxUrl = localStorage.getItem("bt_boundary_dropbox_url"); const dbInput = document.getElementById("boundaryDropboxUrlInput"); if (savedDropboxUrl && dbInput) dbInput.value = savedDropboxUrl; }
   autoSyncBoundaryRegistryIfChanged(); // fire-and-forget — checks the connected master file for changes, silent if nothing changed
   setInterval(autoSyncBoundaryRegistryIfChanged, BOUNDARY_RESYNC_MS); // catch edits made to the master file while this tab stays open
   // NOTE: initGraph2D() moved to the END of init. It touches the canvas context,
