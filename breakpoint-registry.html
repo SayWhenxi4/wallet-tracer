@@ -162,6 +162,9 @@
 
   <div class="toolbar">
     <input type="text" id="search" placeholder="Search address, protocol, chain...">
+    <select id="chainFilter" style="background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-family:var(--mono); font-size:12px;">
+      <option value="all">All chains</option>
+    </select>
     <div class="chip active" data-filter-type="all">All types</div>
     <div class="chip" data-filter-type="bridge">Bridges</div>
     <div class="chip" data-filter-type="mixer">Mixers</div>
@@ -170,22 +173,31 @@
     <div class="chip" data-filter-type="exchange">Exchanges</div>
     <div class="chip" data-filter-type="token_contract">Token contracts</div>
     <div class="chip" data-filter-type="dex">DEX / swap</div>
+    <button type="button" class="ghost" onclick="exportFilteredJSON()" style="margin-left:auto;">Export filtered results</button>
   </div>
+  <div class="note" id="filteredCount" style="margin:-6px 0 10px; font-size:11px;"></div>
 
-  <table>
-    <thead>
-      <tr>
-        <th style="width:26%">Address</th>
-        <th style="width:10%">Chain</th>
-        <th style="width:9%">Type</th>
-        <th style="width:16%">Protocol</th>
-        <th style="width:9%">Confidence</th>
-        <th style="width:30%">Notes</th>
-      </tr>
-    </thead>
-    <tbody id="tbody"></tbody>
-  </table>
-  <div class="empty" id="emptyMsg" style="display:none">No entries match this filter.</div>
+  <div id="tableCollapseHeader" onclick="toggleTableCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none;">
+    <span id="tableCollapseArrow" style="font-family:var(--mono); color:var(--brass);">&#9660;</span>
+    <span style="font-size:12px; color:var(--text-2);">Registry entries</span>
+    <span id="tableCollapseCount" style="font-size:11px; color:var(--text-dim); margin-left:auto;"></span>
+  </div>
+  <div id="tableCollapseBody">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:26%">Address</th>
+          <th style="width:10%">Chain</th>
+          <th style="width:9%">Type</th>
+          <th style="width:16%">Protocol</th>
+          <th style="width:9%">Confidence</th>
+          <th style="width:30%">Notes</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div class="empty" id="emptyMsg" style="display:none">No entries match this filter.</div>
+  </div>
 
   <div class="panel">
     <h3><span class="dot"></span>Add entry</h3>
@@ -673,6 +685,7 @@ async function init(){
     entries = await getAll();
   }
   render();
+  toggleTableCollapse(localStorage.getItem('bp_table_collapsed') === '1');
   tryRestoreMasterHandle();
   await handleDropboxRedirect(); // no-op unless we just came back from Dropbox's sign-in page
   await updateDropboxUI();
@@ -687,16 +700,50 @@ function typeLabel(t){
   return { bridge:'bridge', mixer:'mixer', privacy_pool:'privacy pool', router:'router', exchange:'exchange', token_contract:'token contract', dex:'DEX / swap' }[t] || t;
 }
 
-function render(){
+function getFilteredList(){
   const q = document.getElementById('search').value.trim().toLowerCase();
+  const chainSelect = document.getElementById('chainFilter');
   let list = entries.slice().sort((a,b) => a.chain.localeCompare(b.chain));
   if(activeFilter !== 'all') list = list.filter(e => e.type === activeFilter);
+  if(chainSelect.value !== 'all') list = list.filter(e => e.chain === chainSelect.value);
   if(q) list = list.filter(e =>
     e.address.toLowerCase().includes(q) ||
     (e.protocol||'').toLowerCase().includes(q) ||
     (e.chain||'').toLowerCase().includes(q) ||
     (e.notes||'').toLowerCase().includes(q)
   );
+  return list;
+}
+
+function toggleTableCollapse(forceState) {
+  const body = document.getElementById('tableCollapseBody');
+  const arrow = document.getElementById('tableCollapseArrow');
+  const isCollapsed = forceState !== undefined ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;'; // right-pointing when collapsed, down when open
+  localStorage.setItem('bp_table_collapsed', isCollapsed ? '1' : '0');
+}
+
+function render(){
+  const chainSelect = document.getElementById('chainFilter');
+  const activeChain = chainSelect.value;
+
+  // Rebuild chain options from whatever's actually in the data, so it never
+  // goes stale as entries are added/imported/removed. Preserves the current
+  // selection across rebuilds instead of silently resetting it to "All".
+  const chains = [...new Set(entries.map(e => e.chain))].sort();
+  const prevOptions = [...chainSelect.options].map(o => o.value);
+  if (prevOptions.length !== chains.length + 1 || chains.some((c, i) => prevOptions[i+1] !== c)) {
+    chainSelect.innerHTML = '<option value="all">All chains</option>' + chains.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
+    chainSelect.value = chains.includes(activeChain) ? activeChain : 'all';
+  }
+
+  const list = getFilteredList();
+  const q = document.getElementById('search').value.trim();
+  const filteredCountEl = document.getElementById('filteredCount');
+  const isFiltered = activeFilter !== 'all' || chainSelect.value !== 'all' || q;
+  filteredCountEl.textContent = isFiltered ? `Showing ${list.length.toLocaleString()} of ${entries.length.toLocaleString()} entries` : '';
+  document.getElementById('tableCollapseCount').textContent = isFiltered ? `${list.length.toLocaleString()} shown / ${entries.length.toLocaleString()} total` : `${entries.length.toLocaleString()} entries`;
 
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('emptyMsg');
@@ -732,6 +779,19 @@ function render(){
     <div class="stat"><div class="n">${stats.confirmed}</div><div class="l">Confirmed</div></div>
     <div class="stat"><div class="n">${stats.chains}</div><div class="l">Chains covered</div></div>
   `;
+}
+
+async function exportFilteredJSON(){
+  const list = getFilteredList();
+  if (!list.length) { showToast('No entries match the current filters'); return; }
+  const clean = list.map(({ _key, ...rest }) => rest);
+  const blob = new Blob([JSON.stringify({ registry: clean, exported: new Date().toISOString() })], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'breakpoint-registry-filtered.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  showToast(`Exported ${clean.length.toLocaleString()} filtered entr${clean.length === 1 ? 'y' : 'ies'}`);
 }
 
 function escapeHTML(s){
@@ -1302,6 +1362,7 @@ function showToast(msg){
 }
 
 document.getElementById('search').addEventListener('input', render);
+document.getElementById('chainFilter').addEventListener('change', render);
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => {
     document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
