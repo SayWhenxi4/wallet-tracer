@@ -1390,7 +1390,6 @@ const BOUNDARY_HANDLE_DB = "wallet_tracer_boundary_handle";
 const BOUNDARY_RESYNC_MS = 5 * 60 * 1000; // re-check the master file for changes every 5 min while the tab stays open
 let boundaryDb = null;
 let boundaryMasterHandle = null;
-let boundaryMasterPassword = null; // session-only, re-prompted per browser session, never persisted
 const FS_ACCESS_SUPPORTED_BOUNDARY = typeof window !== "undefined" && "showOpenFilePicker" in window;
 const BOUNDARY_TYPE_TO_CATEGORY = { bridge: "router", mixer: "mixer", privacy_pool: "mixer", router: "router", exchange: "exchange", token_contract: "contract", dex: "router" };
 // Not every boundary hit means the same thing. A bridge/mixer genuinely
@@ -1453,21 +1452,6 @@ async function ensureBoundaryTag(address, chain) {
   return { tag: hit.protocol, type: hit.type, confidence: hit.confidence, isBoundary: true };
 }
 
-// ---- Decrypt BREAKPOINT's master-file format (AES-256-GCM / PBKDF2-SHA256) ----
-// Read-only here by design: Wallet-Tracer never writes to the master file,
-// it only ever reads and decrypts it to refresh this local cache.
-async function boundaryDeriveKey(password, saltBytes, iterations) {
-  const enc = new TextEncoder();
-  const baseKey = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({ name: "PBKDF2", salt: saltBytes, iterations, hash: "SHA-256" }, baseKey, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
-}
-function boundaryFromB64(b64) { return Uint8Array.from(atob(b64), c => c.charCodeAt(0)); }
-async function boundaryDecryptJSON(envelope, password) {
-  const key = await boundaryDeriveKey(password, boundaryFromB64(envelope.salt), envelope.iterations);
-  const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv: boundaryFromB64(envelope.iv) }, key, boundaryFromB64(envelope.ciphertext));
-  return JSON.parse(new TextDecoder().decode(plainBuf));
-}
-
 // ---- File handle persistence (File System Access API — Chrome/Edge desktop only) ----
 function openBoundaryHandleDb() {
   return new Promise((resolve, reject) => {
@@ -1486,32 +1470,6 @@ async function loadBoundaryHandleRef() {
   return new Promise((resolve, reject) => { const tx = hdb.transaction("handles", "readonly"); const req = tx.objectStore("handles").get("master"); req.onsuccess = () => resolve(req.result || null); req.onerror = () => reject(req.error); });
 }
 
-// Minimal password modal — self-contained, no dependency on any other UI
-// system in this file. Resolves with the password, or null on cancel.
-function promptBoundaryPassword(message) {
-  return new Promise((resolve) => {
-    const overlay = document.createElement("div");
-    overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
-    overlay.innerHTML = `
-      <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:420px;width:100%;padding:20px;">
-        <h3 style="margin:0 0 10px;font-size:14px;color:var(--text);">Boundary registry password</h3>
-        <p style="margin:0 0 12px;font-size:12.5px;color:var(--text-2);">${message}</p>
-        <input type="password" id="__bdPw" autocomplete="current-password" style="width:100%;">
-        <div style="display:flex;gap:8px;margin-top:14px;">
-          <button type="button" id="__bdCancel" class="small">Cancel</button>
-          <button type="button" id="__bdOk" style="border-color:var(--brass); color:var(--brass);">Unlock</button>
-        </div>
-      </div>`;
-    document.body.appendChild(overlay);
-    const cleanup = (val) => { overlay.remove(); resolve(val); };
-    overlay.querySelector("#__bdCancel").onclick = () => cleanup(null);
-    overlay.querySelector("#__bdOk").onclick = () => cleanup(overlay.querySelector("#__bdPw").value || null);
-    const input = overlay.querySelector("#__bdPw");
-    setTimeout(() => input.focus(), 30);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") cleanup(input.value || null); });
-  });
-}
-
 function updateBoundaryStatusUI(text) {
   const el = document.getElementById("boundaryRegistryStatus");
   if (el) el.textContent = text;
@@ -1519,11 +1477,9 @@ function updateBoundaryStatusUI(text) {
 
 // The automatic part: on load (and every BOUNDARY_RESYNC_MS while the tab
 // stays open), check whether the connected master file has changed since
-// the last sync, and if so, refresh the local cache. Requires a password
-// the FIRST time it's needed each browser session; after that it's cached
-// in memory and every subsequent check-and-resync is silent unless the
-// file actually changed. If no file is connected yet, or permission needs
-// re-granting, this surfaces a status line rather than failing silently.
+// the last sync, and if so, refresh the local cache — reads the plain JSON
+// directly, no password step. If no file is connected yet, or permission
+// needs re-granting, this surfaces a status line rather than failing silently.
 async function autoSyncBoundaryRegistryIfChanged() {
   if (!FS_ACCESS_SUPPORTED_BOUNDARY) { updateBoundaryStatusUI("Boundary registry: not supported in this browser (Chrome/Edge desktop only)."); return; }
   if (!boundaryMasterHandle) {
@@ -1541,20 +1497,12 @@ async function autoSyncBoundaryRegistryIfChanged() {
     const text = await file.text();
     if (!text.trim()) { updateBoundaryStatusUI("Boundary registry: master file is empty."); return; }
     let data = JSON.parse(text);
-    if (data && data.breakpointEncrypted) {
-      if (!boundaryMasterPassword) {
-        boundaryMasterPassword = await promptBoundaryPassword(`"${file.name}" changed since the last sync. Enter the master password to decrypt and refresh the local lookup cache.`);
-        if (!boundaryMasterPassword) { updateBoundaryStatusUI("Boundary registry: sync skipped (no password entered)."); return; }
-      }
-      data = await boundaryDecryptJSON(data, boundaryMasterPassword);
-    }
     const list = Array.isArray(data) ? data : (data.registry || []);
     await syncBoundaryRegistry(list);
     localStorage.setItem("bt_boundary_last_mtime", String(file.lastModified));
     updateBoundaryStatusUI(`Boundary registry: synced ${list.length.toLocaleString()} entries from ${file.name}.`);
   } catch (err) {
-    boundaryMasterPassword = null; // wrong password shouldn't be silently retried forever
-    updateBoundaryStatusUI("Boundary registry: sync failed \u2014 wrong password, or file changed unexpectedly.");
+    updateBoundaryStatusUI("Boundary registry: sync failed \u2014 file changed unexpectedly or couldn't be read.");
   }
 }
 
@@ -4207,6 +4155,43 @@ function promptContractDetails(defaultLabel) {
     setTimeout(() => labelInput.focus(), 30);
   });
 }
+// Small modal for the exchange name — mirrors promptContractDetails below.
+// This is the fix for names silently getting lost on export: the OLD
+// exchange-confirm flow was a plain window.confirm() with no name field at
+// all, and saved selectedNode.autoLabel — which is empty for almost every
+// manually-identified exchange, since the real name usually only ever got
+// typed into the wallet's notes field, a completely different place the
+// old flow never looked at. This prompts for the name directly, defaulting
+// to whatever's already available so confirming is still one click when
+// there's nothing to correct.
+function promptExchangeDetails(defaultLabel) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
+    overlay.innerHTML = `
+      <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:420px;width:100%;padding:20px;">
+        <h3 style="margin:0 0 10px;font-size:14px;color:var(--text);">Confirmed exchange details</h3>
+        <p style="margin:0 0 12px;font-size:12.5px;color:var(--text-2);">Only confirm this if you've checked the address against the exchange's own hot-wallet list or a verified explorer tag \u2014 not just a similar-looking pattern. This tells the tool to treat it as a trail endpoint (chain-of-custody paths will stop here, and scanning it will show a depositor warning), and is saved permanently on this device, separate from your investigation data.</p>
+        <label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">Exchange name</label>
+        <input type="text" id="__exLabel" placeholder="e.g. OKX, Bybit Hot Wallet, HTX Recovery Hot Wallet 1" style="width:100%;">
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button type="button" id="__exCancel" class="small">Cancel</button>
+          <button type="button" id="__exOk" style="border-color:var(--brass); color:var(--brass);">Confirm</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const cleanup = (val) => { overlay.remove(); resolve(val); };
+    overlay.querySelector("#__exCancel").onclick = () => cleanup(null);
+    overlay.querySelector("#__exOk").onclick = () => {
+      const label = overlay.querySelector("#__exLabel").value.trim();
+      if (!label) return;
+      cleanup(label);
+    };
+    const labelInput = overlay.querySelector("#__exLabel");
+    if (defaultLabel) labelInput.value = defaultLabel;
+    setTimeout(() => labelInput.focus(), 30);
+  });
+}
 function saveConfirmedExchange(address, label) {
   const key = address.toLowerCase();
   confirmedExchangesCache[key] = label || "Exchange (user-verified)";
@@ -6114,15 +6099,40 @@ function exportBoundaryRegistryForBreakpoint() {
   // effort: recover the chain from the matching node in the CURRENT
   // investigation, if it's still loaded; otherwise default to flare and say
   // so plainly in the note, rather than silently guessing.
+  const skippedMismatches = [];
   for (const [addrLower, label] of Object.entries(confirmedExchangesCache || {})) {
     const node = nodesByAddr.get(addrLower);
     const chain = node ? node.chain : null;
+    // Safety check: confirmedExchangesCache is a permanent, device-wide store
+    // separate from any one investigation's data (by design — see the
+    // confirm-exchange prompt text). That means it can go stale: a wallet
+    // confirmed as an exchange in one session can later turn out to be this
+    // session's own root/victim wallet, or get reclassified as a frequent
+    // contact, without the old exchange confirmation ever being cleaned up.
+    // If the CURRENTLY loaded node's category actively disagrees with
+    // "exchange", don't silently export it as verified infrastructure —
+    // that's exactly how a victim wallet could end up mislabeled as an
+    // exchange on a public registry. Skip it and say so plainly.
+    if (node && node.category && node.category !== "exchange") {
+      skippedMismatches.push(`${node.address} (currently tagged "${node.category}" in this investigation, not "exchange")`);
+      continue;
+    }
     if (!chain) chainUnknownCount++;
+    // Recover a real name for exchanges confirmed under the OLD flow, which
+    // saved an empty/generic label instead of the actual name (fixed above,
+    // but this export shouldn't force re-confirming everything that was
+    // already marked before the fix). Same "does this look like a real
+    // name" guard as the confirm-flow default: short, not our own
+    // boilerplate echoed back.
+    const notes = node ? (node.notes || "").trim() : "";
+    const looksLikeRealName = notes && notes.length <= 80 && !/^BREAKPOINT registry match/i.test(notes);
+    const isGenericLabel = !label || label === "Exchange (user-verified)";
+    const resolvedLabel = (isGenericLabel && looksLikeRealName) ? notes : (label || "Exchange (user-verified)");
     registry.push({
       address: node ? node.address : addrLower,
       chain: chain || "flare",
       type: "exchange",
-      protocol: label || "Exchange (user-verified)",
+      protocol: resolvedLabel,
       confidence: "confirmed",
       notes: chain
         ? "Verified by investigator in Wallet-Tracer."
@@ -6152,6 +6162,7 @@ function exportBoundaryRegistryForBreakpoint() {
 
   let msg = `Exported ${registry.length.toLocaleString()} entr${registry.length === 1 ? "y" : "ies"} \u2014 import this file in BREAKPOINT.`;
   if (chainUnknownCount) msg += ` ${chainUnknownCount} exchange entr${chainUnknownCount === 1 ? "y" : "ies"} had no confirmable chain in this session (defaulted to flare) \u2014 double-check those before treating them as confirmed.`;
+  if (skippedMismatches.length) msg += ` Skipped ${skippedMismatches.length} stale confirmation${skippedMismatches.length === 1 ? "" : "s"} that no longer match this session's data: ${skippedMismatches.join("; ")}.`;
   const st = document.getElementById("saveStatus");
   if (st) st.textContent = msg; else showError(msg);
 }
@@ -8794,15 +8805,30 @@ function renderSidePanel() {
       scheduleSave(); renderAll();
     });
     const exFlagBtn = document.getElementById("exchangeFlagBtn");
-    if (exFlagBtn) exFlagBtn.addEventListener("click", () => {
+    if (exFlagBtn) exFlagBtn.addEventListener("click", async () => {
       const turningOn = !selectedNode.userExchange;
-      if (turningOn && !window.confirm("Mark this wallet as a centralized exchange?\n\nOnly do this if you've confirmed its exchange tag on the block explorer yourself. This tells the tool to treat it as a trail endpoint — chain-of-custody paths will stop here, and scanning it will show a depositor (not victim) warning.\n\nThis is saved permanently on this device (separate from your investigation data), so you won't need to re-confirm it in future sessions.")) return;
-      const patch = { userExchange: turningOn };
-      if (turningOn) patch.category = "exchange";
-      else if (selectedNode.category === "exchange") patch.category = "unclassified"; // revert only if we set it
+      if (turningOn) {
+        // Default to whatever real name already exists rather than making
+        // the person retype it: prefer notes (where the actual investigator-
+        // typed name usually lives) unless it's empty, absurdly long, or is
+        // just our own BREAKPOINT boilerplate re-echoed back — none of those
+        // are a real name and shouldn't be suggested as one. Fall back to
+        // autoLabel, then to nothing (an empty field the person fills in).
+        const notes = (selectedNode.notes || "").trim();
+        const looksLikeRealName = notes && notes.length <= 80 && !/^BREAKPOINT registry match/i.test(notes);
+        const suggested = looksLikeRealName ? notes : (selectedNode.autoLabel || "");
+        const label = await promptExchangeDetails(suggested);
+        if (!label) return;
+        const patch = { userExchange: true, category: "exchange" };
+        upsertNode(selectedNode.address, selectedNode.chain, patch);
+        saveConfirmedExchange(selectedNode.address, label);
+        scheduleSave(); renderAll();
+        return;
+      }
+      const patch = { userExchange: false };
+      if (selectedNode.category === "exchange") patch.category = "unclassified"; // revert only if we set it
       upsertNode(selectedNode.address, selectedNode.chain, patch);
-      if (turningOn) saveConfirmedExchange(selectedNode.address, selectedNode.autoLabel);
-      else removeConfirmedExchange(selectedNode.address);
+      removeConfirmedExchange(selectedNode.address);
       scheduleSave(); renderAll();
     });
     const vcBtn = document.getElementById("verifiedContractBtn");

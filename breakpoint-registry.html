@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BREAKPOINT — Custody Break Registry</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Martian+Mono:wght@400;500;700&display=swap');
+
+  :root{
+    --bg:#0a0e17;
+    --panel:#111726;
+    --panel-2:#161d2e;
+    --line:#232c42;
+    --amber:#e0a458;
+    --amber-dim:#8a6a3a;
+    --text:#cdd6e8;
+    --text-dim:#7c879e;
+    --red:#c9605a;
+    --green:#6ea87a;
+    --mono:'JetBrains Mono', monospace;
+    --display:'Martian Mono', monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:var(--mono); font-size:14px; line-height:1.5;
+  }
+  ::selection{ background:var(--amber-dim); color:#fff; }
+
+  header{
+    padding:28px 24px 20px; border-bottom:1px solid var(--line);
+    position:relative; overflow:hidden;
+  }
+  .brand{
+    font-family:var(--display); font-weight:700; font-size:22px;
+    letter-spacing:0.08em; color:#fff; display:flex; align-items:center; gap:14px;
+  }
+  .brand-mark{
+    width:34px; height:34px; flex:none; position:relative;
+  }
+  .brand-sub{
+    color:var(--text-dim); font-size:12px; margin-top:6px; letter-spacing:0.03em;
+  }
+  .brand-sub b{ color:var(--amber); font-weight:500; }
+
+  main{ max-width:1100px; margin:0 auto; padding:24px; }
+
+  .toolbar{
+    display:flex; flex-wrap:wrap; gap:10px; margin-bottom:18px; align-items:center;
+  }
+  input[type=text], select{
+    background:var(--panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:13px; padding:9px 12px; border-radius:4px;
+    outline:none;
+  }
+  input[type=text]:focus, select:focus{ border-color:var(--amber-dim); }
+  #search{ flex:1; min-width:200px; }
+  .chip{
+    padding:7px 12px; border:1px solid var(--line); border-radius:999px;
+    color:var(--text-dim); font-size:12px; cursor:pointer; background:var(--panel);
+    user-select:none; transition:all .12s;
+  }
+  .chip.active{ border-color:var(--amber); color:var(--amber); background:var(--panel-2); }
+  .chip:hover{ border-color:var(--amber-dim); }
+
+  .stat-row{ display:flex; gap:18px; margin-bottom:18px; flex-wrap:wrap; }
+  .stat{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:12px 16px; min-width:110px;
+  }
+  .stat .n{ font-family:var(--display); font-size:20px; color:var(--amber); }
+  .stat .l{ font-size:11px; color:var(--text-dim); letter-spacing:0.04em; text-transform:uppercase; margin-top:2px;}
+
+  table{ width:100%; border-collapse:collapse; background:var(--panel); border-radius:6px; overflow:hidden; }
+  thead th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:0.05em;
+    color:var(--text-dim); padding:10px 12px; border-bottom:1px solid var(--line);
+    background:var(--panel-2); font-weight:500;
+  }
+  tbody td{ padding:11px 12px; border-bottom:1px solid var(--line); font-size:12.5px; vertical-align:top; }
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:var(--panel-2); }
+  .addr{ font-family:var(--mono); word-break:break-all; color:#fff; cursor:pointer; }
+  .addr:hover{ color:var(--amber); }
+  .tag{
+    display:inline-block; padding:2px 8px; border-radius:3px; font-size:10.5px;
+    letter-spacing:0.03em; text-transform:uppercase; font-weight:600;
+  }
+  .tag.bridge{ background:#1c2c44; color:#7ea6d9; }
+  .tag.mixer{ background:#3a1f1f; color:var(--red); }
+  .tag.privacy_pool{ background:#2a2036; color:#b590d9; }
+  .tag.router{ background:#233826; color:var(--green); }
+  .tag.exchange{ background:#173035; color:#5fc9d9; }
+  .tag.token_contract{ background:#332b12; color:var(--amber); }
+  .tag.dex{ background:#1f3320; color:#8fcf7a; }
+  .conf{ font-size:11px; }
+  .conf.confirmed{ color:var(--green); }
+  .conf.probable{ color:var(--amber); }
+  .conf.historical{ color:var(--text-dim); }
+  .note{ color:var(--text-dim); font-size:11.5px; margin-top:3px; }
+  .src-link{ color:var(--text-dim); font-size:10.5px; text-decoration:none; border-bottom:1px dotted var(--text-dim); }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:6px;
+    padding:18px; margin-top:22px;
+  }
+  .panel h3{
+    margin:0 0 12px; font-family:var(--display); font-size:13px; color:#fff;
+    letter-spacing:0.04em; display:flex; align-items:center; gap:8px;
+  }
+  .panel h3 .dot{ width:7px; height:7px; border-radius:50%; background:var(--amber); flex:none; }
+
+  .form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .form-grid .full{ grid-column:1 / -1; }
+  label{ font-size:11px; color:var(--text-dim); display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.03em; }
+  button{
+    font-family:var(--mono); font-size:12.5px; padding:9px 16px; border-radius:4px;
+    border:1px solid var(--amber-dim); background:transparent; color:var(--amber);
+    cursor:pointer; transition:all .12s;
+  }
+  button:hover{ background:var(--amber-dim); color:#0a0e17; }
+  button.ghost{ border-color:var(--line); color:var(--text-dim); }
+  button.ghost:hover{ background:var(--panel-2); color:var(--text); border-color:var(--text-dim); }
+  .btn-row{ display:flex; gap:10px; margin-top:14px; flex-wrap:wrap; }
+
+  pre{
+    background:#060a12; border:1px solid var(--line); border-radius:4px;
+    padding:14px; font-size:11.5px; overflow-x:auto; color:#9db3d8; line-height:1.6;
+  }
+  .toast{
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:var(--panel-2); border:1px solid var(--amber-dim); color:var(--amber);
+    padding:9px 16px; border-radius:4px; font-size:12.5px; opacity:0;
+    transition:opacity .2s; pointer-events:none; z-index:99;
+  }
+  .toast.show{ opacity:1; }
+  .empty{ padding:30px; text-align:center; color:var(--text-dim); font-size:12.5px; }
+  .flag{ color:var(--red); font-size:10.5px; margin-top:3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <a href="index.html" style="display:inline-block; font-size:11px; color:#7ea6d9; text-decoration:none; margin-bottom:8px;">&larr; Back to Wallet Tracer</a>
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 34 34">
+      <line x1="2" y1="17" x2="14" y2="17" stroke="#7ea6d9" stroke-width="2"/>
+      <circle cx="17" cy="17" r="4" fill="none" stroke="#e0a458" stroke-width="2"/>
+      <line x1="21" y1="15" x2="26" y2="10" stroke="#e0a458" stroke-width="1.6" stroke-dasharray="2,2"/>
+      <line x1="21" y1="17" x2="27" y2="17" stroke="#e0a458" stroke-width="1.6" stroke-dasharray="2,2"/>
+      <line x1="21" y1="19" x2="26" y2="24" stroke="#e0a458" stroke-width="1.6" stroke-dasharray="2,2"/>
+    </svg>
+    BREAKPOINT
+  </div>
+  <div class="brand-sub">Known blockchain backbone — bridges, mixers, exchanges, verified token contracts &amp; DEX routers. Documented infrastructure only, never a judgment call about a wallet. Feeds <b>Wallet-Tracer</b>'s boundary detection.</div>
+</header>
+
+<main>
+
+  <div class="stat-row" id="statRow"></div>
+
+  <div class="toolbar">
+    <input type="text" id="search" placeholder="Search address, protocol, chain...">
+    <div class="chip active" data-filter-type="all">All types</div>
+    <div class="chip" data-filter-type="bridge">Bridges</div>
+    <div class="chip" data-filter-type="mixer">Mixers</div>
+    <div class="chip" data-filter-type="privacy_pool">Privacy pools</div>
+    <div class="chip" data-filter-type="router">Routers</div>
+    <div class="chip" data-filter-type="exchange">Exchanges</div>
+    <div class="chip" data-filter-type="token_contract">Token contracts</div>
+    <div class="chip" data-filter-type="dex">DEX / swap</div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:26%">Address</th>
+        <th style="width:10%">Chain</th>
+        <th style="width:9%">Type</th>
+        <th style="width:16%">Protocol</th>
+        <th style="width:9%">Confidence</th>
+        <th style="width:30%">Notes</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="empty" id="emptyMsg" style="display:none">No entries match this filter.</div>
+
+  <div class="panel">
+    <h3><span class="dot"></span>Add entry</h3>
+    <div class="form-grid">
+      <div class="full">
+        <label>Address</label>
+        <input type="text" id="f_addr" placeholder="0x... or base58 — case preserved exactly as entered">
+      </div>
+      <div>
+        <label>Chain</label>
+        <input type="text" id="f_chain" placeholder="ethereum, solana, arbitrum...">
+      </div>
+      <div>
+        <label>Type</label>
+        <select id="f_type">
+          <option value="bridge">bridge</option>
+          <option value="mixer">mixer</option>
+          <option value="privacy_pool">privacy_pool</option>
+          <option value="router">router</option>
+          <option value="exchange">exchange</option>
+          <option value="token_contract">token_contract</option>
+          <option value="dex">dex</option>
+        </select>
+      </div>
+      <div>
+        <label>Protocol</label>
+        <input type="text" id="f_protocol" placeholder="Mayan Protocol, Tornado Cash...">
+      </div>
+      <div>
+        <label>Confidence</label>
+        <select id="f_confidence">
+          <option value="confirmed">confirmed</option>
+          <option value="probable">probable</option>
+          <option value="historical">historical</option>
+        </select>
+      </div>
+      <div class="full">
+        <label>Notes / source</label>
+        <input type="text" id="f_notes" placeholder="Where this came from — case ref, tx hash, OFAC action date...">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button onclick="addEntry()">Add to registry</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3><span class="dot"></span>Import / export</h3>
+    <div class="note" style="margin-bottom:12px;">Export writes a plain, unencrypted registry JSON file. Import accepts a plain registry JSON, and previews new/updated/rejected rows before writing anything.</div>
+    <div class="btn-row">
+      <button onclick="exportJSON()">Export JSON</button>
+      <button class="ghost" onclick="document.getElementById('importFile').click()">Import JSON</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
+      <button class="ghost" onclick="resetToSeed()">Reset to seed data</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h3><span class="dot"></span>Master file (portable drive)</h3>
+    <div class="note" style="margin-bottom:12px;">Connects this page directly to ONE file on disk — on your portable SSD, a folder, wherever — so Save/Load always read and write that same file instead of piling up new downloads. Plain, unencrypted JSON. Chrome/Edge on desktop only (the underlying browser API isn't in Firefox or Safari).</div>
+    <div class="note" id="masterFileStatus" style="margin-bottom:12px; color:var(--amber);">Checking…</div>
+    <div class="btn-row">
+      <button onclick="chooseMasterFile(true)">Create new master file…</button>
+      <button class="ghost" onclick="chooseMasterFile(false)">Open existing master file…</button>
+      <button id="masterReconnectBtn" class="ghost" style="display:none;" onclick="requestMasterPermission()">Reconnect (needs a click)</button>
+    </div>
+    <div class="btn-row">
+      <button onclick="saveToMasterFile()">Save to master file</button>
+      <button class="ghost" onclick="loadFromMasterFile()">Load from master file</button>
+      <button class="ghost" onclick="forgetMasterFile()">Forget connection</button>
+    </div>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const DB_NAME = 'breakpoint_registry';
+const DB_VERSION = 2; // v2: keyPath moved from 'address' alone to '_key' (chain+address) —
+                       // v1 silently collided any two entries sharing an address across
+                       // different chains (e.g. the same bridge contract address reused
+                       // on two EVM chains would overwrite each other on import).
+const STORE = 'entries';
+let db = null;
+let entries = [];
+let entryMap = new Map(); // _key -> entry, rebuilt whenever `entries` changes; used for O(1) import diffing
+let activeFilter = 'all';
+
+// Whitelists. Anything outside these is REJECTED at validation time, not
+// coerced — a bulk import is exactly the situation where a malformed or
+// hostile record could otherwise inject class names / break rendering.
+const ALLOWED_TYPES = ['bridge', 'mixer', 'privacy_pool', 'router', 'exchange', 'token_contract', 'dex'];
+const ALLOWED_CONFIDENCE = ['confirmed', 'probable', 'historical'];
+const MAX_FIELD_LEN = { address: 128, chain: 40, protocol: 300, notes: 4000, source: 200 };
+
+function computeKey(e) {
+  return String(e.chain || 'unknown').trim().toLowerCase() + '::' + String(e.address || '').trim();
+}
+
+// Validates one raw (untrusted) record. Returns { ok:true, entry } with a
+// clean, whitelisted-shape object, or { ok:false, reason }. Nothing from the
+// input is used verbatim except address/protocol/notes/source text, and even
+// those are length-capped and always HTML-escaped at render time — never
+// trusted into a class name or attribute the way `type` alone used to be.
+function validateEntry(raw) {
+  if (!raw || typeof raw !== 'object') return { ok: false, reason: 'not an object' };
+  const address = String(raw.address || '').trim();
+  const chain = String(raw.chain || '').trim();
+  if (!address) return { ok: false, reason: 'missing address' };
+  if (!chain) return { ok: false, reason: 'missing chain' };
+  if (address.length > MAX_FIELD_LEN.address) return { ok: false, reason: 'address too long' };
+  if (chain.length > MAX_FIELD_LEN.chain) return { ok: false, reason: 'chain name too long' };
+  const type = String(raw.type || '').trim().toLowerCase();
+  if (!ALLOWED_TYPES.includes(type)) return { ok: false, reason: `type "${raw.type}" not in ${ALLOWED_TYPES.join('/')}` };
+  const confidence = String(raw.confidence || '').trim().toLowerCase();
+  if (!ALLOWED_CONFIDENCE.includes(confidence)) return { ok: false, reason: `confidence "${raw.confidence}" not in ${ALLOWED_CONFIDENCE.join('/')}` };
+  const protocol = String(raw.protocol || '').trim().slice(0, MAX_FIELD_LEN.protocol);
+  const notes = String(raw.notes || '').trim().slice(0, MAX_FIELD_LEN.notes);
+  const source = String(raw.source || '').trim().slice(0, MAX_FIELD_LEN.source);
+  return { ok: true, entry: { address, chain, type, confidence, protocol, notes, source } };
+}
+
+const SEED = [
+  {
+    address: "0x722122dF12D4e14e13Ac3b6895a86e84145b6967",
+    chain: "ethereum", type: "mixer", protocol: "Tornado Cash",
+    confidence: "historical",
+    notes: "Same 2022 designation / March 2025 delisting as above."
+  },
+  {
+    address: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
+    chain: "ethereum", type: "dex", protocol: "Uniswap V2: Router 2",
+    confidence: "confirmed",
+    notes: "Uniswap's official V2 swap router, verified against Uniswap's own contract docs and Etherscan's verified source. High-traffic shared infrastructure used by millions of unrelated wallets \u2014 treat like an exchange wallet for tracing purposes: do NOT read its other counterparties as connected to any one case. Source: github.com/Uniswap/docs (contracts/v2/reference/smart-contracts/06-router02.md); etherscan.io/address/0x7a250d5630b4cf539739df2c5dacb4c659f2488d."
+  },
+  {
+    address: "0x8589427373D6D84E98730D7795D8f6f8731FDA16",
+    chain: "ethereum", type: "mixer", protocol: "Tornado Cash",
+    confidence: "historical",
+    notes: "From OFAC's original Aug 8, 2022 SDN designation. DELISTED March 21, 2025 after the Fifth Circuit ruled immutable smart contracts aren't sanctionable 'property' (Van Loon v. Treasury). No longer a sanctions hit, but retains investigative value as a known mixer contract. Source: ofac.treasury.gov/recent-actions/20220808."
+  },
+  {
+    address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    chain: "ethereum", type: "token_contract", protocol: "USDC (Circle)",
+    confidence: "confirmed",
+    notes: "Canonical USDC token contract on Ethereum mainnet, verified directly against Circle's own contract-address documentation and Etherscan's verified source. Not a custody point \u2014 this is the ERC-20 contract itself, not a wallet. If tracing a specific transfer, follow the sender/receiver wallets, not this address. Source: developers.circle.com/stablecoins/usdc-contract-addresses; etherscan.io/address/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48."
+  },
+  {
+    address: "0xDD4c48C0B24039969fC16D1cdF626eaB821d3384",
+    chain: "ethereum", type: "mixer", protocol: "Tornado Cash",
+    confidence: "historical",
+    notes: "Same 2022 designation / March 2025 delisting as above."
+  },
+  {
+    address: "0xF3f04555f8FdA510bfC77820FD6eB8446f59E72d",
+    chain: "ethereum", type: "bridge", protocol: "Mayan Protocol (Swap Bridge, legacy)",
+    confidence: "probable",
+    notes: "Legacy Wormhole-based swap bridge contract (same address on BSC, Polygon, Avalanche, Arbitrum). Mayan has since moved to a solver/intent-based model \u2014 funds may route through solver wallets that don't touch this contract directly, so this address alone won't catch current flow. Source: docs.mayan.finance/integration/contracts-legacy."
+  },
+  {
+    address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    chain: "ethereum", type: "token_contract", protocol: "USDT (Tether)",
+    confidence: "confirmed",
+    notes: "Canonical USDT token contract on Ethereum mainnet, verified source on Etherscan. Same caveat as USDC: this is the token contract, not a wallet \u2014 follow actual sender/receiver addresses when tracing a transfer. Source: etherscan.io/address/0xdac17f958d2ee523a2206206994597c13d831ec7."
+  },
+  {
+    address: "0xf92cd566Ea4864356C5491c177A430C222d7e678",
+    chain: "ethereum", type: "bridge", protocol: "Wormhole Token Bridge (Solana route)",
+    confidence: "confirmed",
+    notes: "Wormhole's lock-and-mint token bridge contract for the Solana route on Ethereum. Guardian-network trust model, distinct from Mayan's solver model \u2014 behaves as a fixed custody point (good for txid:vout / deposit-log style correlation)."
+  },
+  {
+    address: "0x06092bd0bb7b49895b970bf086828cacc3a5ee5e",
+    chain: "flare", type: "exchange", protocol: "Bitstamp Hot Wallet 73",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x18709e89bd403f470088abdacebe86cc60dda12e",
+    chain: "flare", type: "exchange", protocol: "HTX Recovery Hot Wallet 1",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x2933782b5a8d72f2754103d1489614f29bfa4625",
+    chain: "flare", type: "exchange", protocol: "KuCoin Wallet",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x3727cfcbd85390bb11b3ff421878123adb866be8",
+    chain: "flare", type: "exchange", protocol: "Bitbank Hot Wallet 7",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x3a2904b75fab13f6089c9df4473137ed796dd1df",
+    chain: "flare", type: "exchange", protocol: "Kraken Hot Wallet",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x3f5ce5fbfe3e9af3971dd833d26ba9b5c936f0be",
+    chain: "flare", type: "exchange", protocol: "Binance Hot Wallet 1",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x5bdf85216ec1e38d6458c870992a69e38e03f7ef",
+    chain: "flare", type: "exchange", protocol: "Bitget Hot Wallet 2",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x5edcb40b1602ea7db3a035592b8835cb704c3039",
+    chain: "flare", type: "exchange", protocol: "Coinbase Hot Wallet",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x8ce8077363448c9d4d616b6224ddb48c25f6095e",
+    chain: "flare", type: "exchange", protocol: "Bitstamp Hot Wallet 98",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xa485582eed34126fbb5387b35757e1f71dfc4ce8",
+    chain: "flare", type: "exchange", protocol: "OKX Hot Wallet 59",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xa50728d3e82855acf6a09efa30254b1636dd0d69",
+    chain: "flare", type: "exchange", protocol: "Bitstamp Hot Wallet 105",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xa9d1e08c7793af67e9d92fe308d5697fb81d3e43",
+    chain: "flare", type: "exchange", protocol: "Coinbase Hot Wallet 5",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xaa4593fbe9cbf34c51b36f0be6c674ba55e9c590",
+    chain: "flare", type: "exchange", protocol: "Coinbase Hot Wallet 89",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xb0f97d8a45b77ecfcaf9c79241104522999c27ce",
+    chain: "flare", type: "exchange", protocol: "Paribu Hot Wallet 59",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xd2dd7b597fd2435b6db61ddf48544fd931e6869f",
+    chain: "flare", type: "exchange", protocol: "Kraken Cold Wallet 39",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xf89d7b9c864f589bbf53a82105107622b35eaa40",
+    chain: "flare", type: "exchange", protocol: "Bybit Hot Wallet 1",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "8LPjGDbxhW4G2Q8S6FvdvUdfGWssgtqmvsc63bwNFA7E",
+    chain: "solana", type: "bridge", protocol: "Mayan Protocol (Swap Bridge, legacy)",
+    confidence: "probable",
+    notes: "Solana-side counterpart to the legacy EVM swap bridge contract above. Same solver-model caveat applies."
+  },
+  {
+    address: "0x0d0707963952f2fba59dd06f2b425ace40b492fe",
+    chain: "songbird", type: "exchange", protocol: "Gate.io Hot Wallet 1",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x7560b22b42b3e2596bd989764f1eb9bec1896c8d",
+    chain: "songbird", type: "exchange", protocol: "Bitrue Hot Wallet 7",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xb2D0E75B7B23123f6c6CEf334E6C6de77E01D8A9",
+    chain: "flare", type: "exchange", protocol: "Bithumb Hot Wallet 127",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x4616B5e775cD239Af56A5eA87eEfC1251B7f077C",
+    chain: "flare", type: "exchange", protocol: "Crypto.com Hot Wallet 8",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x83c1C224044Ef8573e9a728dBb91013CF80827E6",
+    chain: "flare", type: "exchange", protocol: "MEXC Hot Wallet 6",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xcA46fBDC3Dfe107d033682Acb1EF212fe555E731",
+    chain: "flare", type: "exchange", protocol: "BTC Markets Hot Wallet 7",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x611f7bF868a6212f871e89F7e44684045DdFB09d",
+    chain: "flare", type: "exchange", protocol: "OKX Cold Wallet 78",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0x1c3944173abee256456B1498299FC501AD5bBd6f",
+    chain: "flare", type: "exchange", protocol: "Bybit Hot Wallet 1",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xe6a02eeFC2612b13f2B3B914009576ce5495Ec0e",
+    chain: "flare", type: "exchange", protocol: "Kraken Withdrawal Hot Wallet 1",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+  {
+    address: "0xCc1Cee502FE2312E3D17ba45A46682FFCbF067ba",
+    chain: "flare", type: "exchange", protocol: "Bithumb Hot Wallet 5",
+    confidence: "confirmed",
+    notes: "Verified by investigator in Wallet-Tracer."
+  },
+];
+
+function openDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (ev) => {
+      const d = req.result;
+      const tx = req.transaction;
+      if (ev.oldVersion < 1) {
+        // Fresh install — nothing to migrate.
+        const s = d.createObjectStore(STORE, { keyPath: '_key' });
+        s.createIndex('by_address', 'address', { unique: false });
+        return;
+      }
+      if (ev.oldVersion < 2 && d.objectStoreNames.contains(STORE)) {
+        // Migrating from v1 (keyPath: 'address', which silently collided any
+        // two entries sharing an address on different chains). Read every
+        // old record out via cursor INSIDE this versionchange transaction,
+        // then drop and recreate the store with the collision-safe key.
+        const oldStore = tx.objectStore(STORE);
+        const migrated = [];
+        oldStore.openCursor().onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (cursor) {
+            const rec = cursor.value;
+            if (!rec.chain) rec.chain = 'unknown'; // guard pre-chain-field legacy rows, if any
+            migrated.push(rec);
+            cursor.continue();
+          } else {
+            d.deleteObjectStore(STORE);
+            const newStore = d.createObjectStore(STORE, { keyPath: '_key' });
+            newStore.createIndex('by_address', 'address', { unique: false });
+            for (const rec of migrated) {
+              rec._key = computeKey(rec);
+              newStore.put(rec);
+            }
+          }
+        };
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function getAll(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const store = tx.objectStore(STORE);
+    const req = store.getAll();
+    req.onsuccess = () => {
+      entryMap = new Map(req.result.map(e => [e._key || computeKey(e), e]));
+      resolve(req.result);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function putEntry(entry){
+  return new Promise((resolve, reject) => {
+    entry._key = computeKey(entry);
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(entry);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Batched write: ALL records go in one transaction instead of one transaction
+// per record. This is the difference between a 10,000-row import taking
+// ~10,000 round trips vs. one. Chunked at CHUNK_SIZE so a truly enormous dump
+// (hundreds of thousands of rows) still yields to the event loop between
+// chunks instead of locking the tab for the whole write.
+const CHUNK_SIZE = 2000;
+async function putEntries(list, onProgress){
+  for (let i = 0; i < list.length; i += CHUNK_SIZE) {
+    const chunk = list.slice(i, i + CHUNK_SIZE);
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      const store = tx.objectStore(STORE);
+      for (const e of chunk) { e._key = e._key || computeKey(e); store.put(e); }
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    if (onProgress) onProgress(Math.min(i + CHUNK_SIZE, list.length), list.length);
+    // Yield to the event loop between chunks so the tab stays responsive.
+    await new Promise(r => setTimeout(r, 0));
+  }
+}
+
+// Merges a validated incoming record with whatever's already at that key
+// (chain+address). Nothing is silently destroyed: the prior state is pushed
+// onto a capped history[] array first, so a bad bulk import can be reviewed
+// and reasoned about afterward instead of just clobbering curated data.
+const MAX_HISTORY = 10;
+function mergeWithHistory(existing, incoming, source) {
+  const now = new Date().toISOString();
+  const next = { ...incoming, _key: computeKey(incoming) };
+  if (existing) {
+    const changed = existing.type !== next.type || existing.confidence !== next.confidence
+      || existing.protocol !== next.protocol || existing.notes !== next.notes;
+    next.history = (existing.history || []).slice(-(MAX_HISTORY - 1));
+    if (changed) {
+      next.history.push({
+        type: existing.type, confidence: existing.confidence, protocol: existing.protocol,
+        notes: existing.notes, source: existing.source, replacedAt: now
+      });
+    }
+    next.addedAt = existing.addedAt || now;
+  } else {
+    next.addedAt = now;
+  }
+  next.updatedAt = now;
+  next.source = next.source || source || (existing && existing.source) || '';
+  return next;
+}
+
+function clearStore(){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function init(){
+  db = await openDB();
+  entries = await getAll();
+  if(entries.length === 0){
+    for(const e of SEED) await putEntry(e);
+    entries = await getAll();
+  }
+  render();
+  tryRestoreMasterHandle();
+}
+
+function typeLabel(t){
+  return { bridge:'bridge', mixer:'mixer', privacy_pool:'privacy pool', router:'router', exchange:'exchange', token_contract:'token contract', dex:'DEX / swap' }[t] || t;
+}
+
+function render(){
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  let list = entries.slice().sort((a,b) => a.chain.localeCompare(b.chain));
+  if(activeFilter !== 'all') list = list.filter(e => e.type === activeFilter);
+  if(q) list = list.filter(e =>
+    e.address.toLowerCase().includes(q) ||
+    (e.protocol||'').toLowerCase().includes(q) ||
+    (e.chain||'').toLowerCase().includes(q) ||
+    (e.notes||'').toLowerCase().includes(q)
+  );
+
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('emptyMsg');
+  tbody.innerHTML = '';
+  empty.style.display = list.length ? 'none' : 'block';
+
+  for(const e of list){
+    const safeType = ALLOWED_TYPES.includes(e.type) ? e.type : 'router';
+    const safeConf = ALLOWED_CONFIDENCE.includes(e.confidence) ? e.confidence : 'historical';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="addr" title="Click to copy" onclick="copyAddr(this)">${escapeHTML(e.address)}</span></td>
+      <td>${escapeHTML(e.chain)}</td>
+      <td><span class="tag ${safeType}">${typeLabel(safeType)}</span></td>
+      <td>${escapeHTML(e.protocol||'')}</td>
+      <td><span class="conf ${safeConf}">${escapeHTML(safeConf)}</span></td>
+      <td>${escapeHTML(e.notes||'')}${e.history && e.history.length ? `<div class="note" style="margin-top:4px;">↺ edited ${e.history.length}× — <span class="src-link" style="cursor:pointer;" onclick="showHistory('${escapeHTML(e._key||computeKey(e))}')">view history</span></div>` : ''}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  const stats = {
+    total: entries.length,
+    bridges: entries.filter(e=>e.type==='bridge').length,
+    mixers: entries.filter(e=>e.type==='mixer').length,
+    confirmed: entries.filter(e=>e.confidence==='confirmed').length,
+    chains: new Set(entries.map(e=>e.chain)).size
+  };
+  document.getElementById('statRow').innerHTML = `
+    <div class="stat"><div class="n">${stats.total}</div><div class="l">Total entries</div></div>
+    <div class="stat"><div class="n">${stats.bridges}</div><div class="l">Bridges</div></div>
+    <div class="stat"><div class="n">${stats.mixers}</div><div class="l">Mixers</div></div>
+    <div class="stat"><div class="n">${stats.confirmed}</div><div class="l">Confirmed</div></div>
+    <div class="stat"><div class="n">${stats.chains}</div><div class="l">Chains covered</div></div>
+  `;
+}
+
+function escapeHTML(s){
+  return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function showModal(title, bodyHTML, buttons){
+  removeModal();
+  const overlay = document.createElement('div');
+  overlay.id = 'modalOverlay';
+  overlay.style = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;';
+  const box = document.createElement('div');
+  box.style = 'background:var(--panel);border:1px solid var(--line);border-radius:8px;max-width:640px;width:100%;max-height:82vh;overflow:auto;padding:20px;';
+  box.innerHTML = `<h3 style="margin:0 0 12px;font-family:var(--display);font-size:14px;color:#fff;">${escapeHTML(title)}</h3><div>${bodyHTML}</div>`;
+  const btnRow = document.createElement('div');
+  btnRow.className = 'btn-row';
+  btnRow.style.marginTop = '16px';
+  (buttons || [{ label: 'Close', className: 'ghost', onClick: removeModal }]).forEach(b => {
+    const btn = document.createElement('button');
+    btn.textContent = b.label;
+    if (b.className) btn.className = b.className;
+    btn.onclick = () => { b.onClick && b.onClick(); };
+    btnRow.appendChild(btn);
+  });
+  box.appendChild(btnRow);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+function removeModal(){ const o = document.getElementById('modalOverlay'); if (o) o.remove(); }
+
+function showHistory(key){
+  const e = entryMap.get(key);
+  if (!e || !e.history || !e.history.length) { showModal('History', '<div class="empty">No prior versions recorded.</div>'); return; }
+  const rows = e.history.slice().reverse().map(h => `
+    <div style="border-bottom:1px solid var(--line); padding:9px 0;">
+      <div style="font-size:11px; color:var(--text-dim);">${escapeHTML(h.replacedAt || '')}${h.source ? ' · ' + escapeHTML(h.source) : ''}</div>
+      <div style="margin-top:3px;">Type: <b>${escapeHTML(h.type || '')}</b> · Confidence: <b>${escapeHTML(h.confidence || '')}</b></div>
+      <div class="note">${escapeHTML(h.protocol || '')}</div>
+      ${h.notes ? `<div class="note">${escapeHTML(h.notes)}</div>` : ''}
+    </div>`).join('');
+  showModal(`History — ${e.address}`, rows);
+}
+
+function copyAddr(el){
+  navigator.clipboard.writeText(el.textContent);
+  showToast('Address copied');
+}
+
+async function addEntry(){
+  const raw = {
+    address: document.getElementById('f_addr').value.trim(),
+    chain: document.getElementById('f_chain').value.trim(),
+    type: document.getElementById('f_type').value,
+    protocol: document.getElementById('f_protocol').value.trim(),
+    confidence: document.getElementById('f_confidence').value,
+    notes: document.getElementById('f_notes').value.trim()
+  };
+  const v = validateEntry(raw);
+  if (!v.ok) { showToast(`Not saved — ${v.reason}`); return; }
+  const key = computeKey(v.entry);
+  const merged = mergeWithHistory(entryMap.get(key), v.entry, 'manual');
+  await putEntry(merged);
+  entries = await getAll();
+  ['f_addr','f_protocol','f_notes'].forEach(id => document.getElementById(id).value = '');
+  render();
+  showToast(entryMap.has(key) ? 'Entry updated (prior version kept in history)' : 'Entry added');
+}
+
+async function exportJSON(){
+  const clean = entries.map(({ _key, ...rest }) => rest); // _key is derived — no need to ship it
+  const blob = new Blob([JSON.stringify({ registry: clean, exported: new Date().toISOString() })], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'breakpoint-registry.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  showToast('Exported');
+}
+
+// Bulk import, hardened for "large amounts of data dumped in":
+//  1. Parse once.
+//  2. Validate EVERY record against a strict whitelist (chunked + yielding,
+//     so a huge file doesn't freeze the tab) — bad rows are rejected with a
+//     reason, never silently coerced or half-imported.
+//  3. Diff against what's already in the registry, in memory — no DB round
+//     trips needed for this pass.
+//  4. Show a preview (new / updated / unchanged / rejected counts, plus the
+//     first 25 rejected rows and why) and require an explicit confirm.
+//  5. Only on confirm: write in batched, chunked transactions, and NEVER
+//     destroy a prior value — every overwrite is pushed onto that record's
+//     history[] first.
+// Shared by both file-based Import and the master-file Load (below): parse
+// once, validate every row, diff against what's already here, show a
+// preview, and only write on explicit confirm. Nothing about this changes
+// depending on WHERE the data came from — a file picked from disk and a
+// file read off a portable SSD go through the identical safety checks.
+async function runImportPipeline(data, sourceLabel){
+  const rawList = Array.isArray(data) ? data : (data.registry || []);
+  if (!Array.isArray(rawList) || !rawList.length) { showToast('No entries found'); return false; }
+
+  showToast(`Validating ${rawList.length.toLocaleString()} record(s)…`);
+  const valid = [], invalid = [];
+  const VALIDATE_CHUNK = 2000;
+  for (let i = 0; i < rawList.length; i += VALIDATE_CHUNK) {
+    for (const raw of rawList.slice(i, i + VALIDATE_CHUNK)) {
+      const v = validateEntry(raw);
+      if (v.ok) valid.push(v.entry); else invalid.push({ raw, reason: v.reason });
+    }
+    if (rawList.length > VALIDATE_CHUNK) await new Promise(r => setTimeout(r, 0)); // keep the tab responsive
+  }
+
+  let added = 0, updated = 0, unchanged = 0;
+  const toWrite = [];
+  for (const inc of valid) {
+    const key = computeKey(inc);
+    const existing = entryMap.get(key);
+    if (!existing) added++;
+    else {
+      const changed = existing.type !== inc.type || existing.confidence !== inc.confidence
+        || existing.protocol !== inc.protocol || existing.notes !== inc.notes;
+      changed ? updated++ : unchanged++;
+    }
+    toWrite.push(mergeWithHistory(existing, inc, inc.source || sourceLabel));
+  }
+
+  const invalidRows = invalid.slice(0, 25).map(x =>
+    `<div class="note">${escapeHTML(JSON.stringify(x.raw).slice(0, 140))} — <span style="color:var(--red)">${escapeHTML(x.reason)}</span></div>`
+  ).join('') || '<div class="note">None.</div>';
+  const moreInvalid = invalid.length > 25 ? `<div class="note">…and ${invalid.length - 25} more rejected row(s).</div>` : '';
+  const batchNote = toWrite.length > CHUNK_SIZE
+    ? ` This will write in ${Math.ceil(toWrite.length / CHUNK_SIZE)} batches of ${CHUNK_SIZE} to keep the browser responsive.`
+    : '';
+
+  const bodyHTML = `
+    <div class="stat-row" style="margin-bottom:14px;">
+      <div class="stat"><div class="n">${rawList.length.toLocaleString()}</div><div class="l">Parsed</div></div>
+      <div class="stat"><div class="n" style="color:var(--green)">${added.toLocaleString()}</div><div class="l">New</div></div>
+      <div class="stat"><div class="n" style="color:var(--amber)">${updated.toLocaleString()}</div><div class="l">Updated</div></div>
+      <div class="stat"><div class="n" style="color:var(--text-dim)">${unchanged.toLocaleString()}</div><div class="l">Unchanged</div></div>
+      <div class="stat"><div class="n" style="color:var(--red)">${invalid.length.toLocaleString()}</div><div class="l">Rejected</div></div>
+    </div>
+    ${invalid.length ? `<div style="margin-bottom:10px;"><b style="color:var(--red); font-size:12px;">Rejected rows (will NOT be imported):</b>${invalidRows}${moreInvalid}</div>` : ''}
+    <div class="note">Updates keep the prior value in that record's history (viewable per-row after import via "view history") — nothing gets silently overwritten.${batchNote}</div>
+  `;
+
+  return new Promise((resolve) => {
+    showModal(`Import preview — ${escapeHTML(sourceLabel)}`, bodyHTML, [
+      { label: 'Cancel', className: 'ghost', onClick: () => { removeModal(); resolve(false); } },
+      { label: `Confirm import (${toWrite.length.toLocaleString()})`, onClick: async () => {
+          removeModal();
+          if (!toWrite.length) { showToast('Nothing valid to import'); resolve(false); return; }
+          showToast(`Writing ${toWrite.length.toLocaleString()} record(s)…`);
+          await putEntries(toWrite, (done, total) => {
+            if (total > CHUNK_SIZE) showToast(`Writing… ${done.toLocaleString()}/${total.toLocaleString()}`);
+          });
+          entries = await getAll();
+          render();
+          showToast(`Imported: ${added} new, ${updated} updated, ${unchanged} unchanged, ${invalid.length} rejected`);
+          resolve(true);
+        }
+      }
+    ]);
+  });
+}
+
+async function importJSON(evt){
+  const file = evt.target.files[0];
+  if(!file) return;
+  const text = await file.text();
+  evt.target.value = '';
+  let data;
+  try { data = JSON.parse(text); } catch(err) { showToast('Import failed — invalid JSON'); return; }
+
+  await runImportPipeline(data, file.name);
+}
+
+// ---------- Master file on a portable drive (File System Access API) ----------
+// This is the actual "one file, not a pile of downloads" mechanism: once
+// connected, Save/Load read and write the SAME file handle directly — no new
+// timestamped file each time. Chromium desktop only (Chrome/Edge) — Firefox
+// and Safari don't implement this API at all, so on those browsers the
+// panel below falls back to a manual instruction (export, then drag-replace
+// the same filename on the drive yourself each time).
+const FS_ACCESS_SUPPORTED = typeof window !== 'undefined' && 'showSaveFilePicker' in window && 'showOpenFilePicker' in window;
+let masterHandle = null;    // FileSystemFileHandle once connected
+
+const HANDLE_DB = 'breakpoint_handles';
+function openHandleDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(HANDLE_DB, 1);
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('handles')) req.result.createObjectStore('handles'); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function saveHandleRef(handle){
+  const hdb = await openHandleDB();
+  return new Promise((resolve, reject) => {
+    const tx = hdb.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'master');
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+}
+async function loadHandleRef(){
+  const hdb = await openHandleDB();
+  return new Promise((resolve, reject) => {
+    const tx = hdb.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get('master');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function updateMasterFileUI(){
+  const el = document.getElementById('masterFileStatus');
+  const reconnectBtn = document.getElementById('masterReconnectBtn');
+  if (!el) return;
+  if (!FS_ACCESS_SUPPORTED) {
+    el.textContent = 'Not supported in this browser \u2014 use Chrome or Edge on desktop for direct drive access. Elsewhere: export (below), then always overwrite the same filename on your drive by hand.';
+    if (reconnectBtn) reconnectBtn.style.display = 'none';
+    return;
+  }
+  if (!masterHandle) { el.textContent = 'Not connected.'; if (reconnectBtn) reconnectBtn.style.display = 'none'; return; }
+  el.textContent = `Connected: ${masterHandle.name}`;
+  if (reconnectBtn) reconnectBtn.style.display = 'none';
+}
+
+async function chooseMasterFile(createNew){
+  if (!FS_ACCESS_SUPPORTED) { showToast('Not supported in this browser \u2014 use Chrome or Edge on desktop.'); return; }
+  try {
+    masterHandle = createNew
+      ? await window.showSaveFilePicker({ suggestedName: 'breakpoint-master.json', types: [{ description: 'BREAKPOINT master file', accept: { 'application/json': ['.json'] } }] })
+      : (await window.showOpenFilePicker({ types: [{ description: 'BREAKPOINT master file', accept: { 'application/json': ['.json'] } }] }))[0];
+    await saveHandleRef(masterHandle);
+    updateMasterFileUI();
+    showToast('Master file connected \u2014 use Save/Load below');
+  } catch (err) {
+    if (err.name !== 'AbortError') showToast('Could not connect: ' + err.message);
+  }
+}
+
+// Re-request permission on a previously connected handle. Browsers require
+// this to happen from a real click (a user gesture) — it can't be done
+// silently on page load, which is why this is a visible button rather than
+// something init() just does automatically.
+async function requestMasterPermission(){
+  if (!masterHandle) return false;
+  const perm = await masterHandle.requestPermission({ mode: 'readwrite' });
+  if (perm === 'granted') { showToast('Reconnected to master file'); updateMasterFileUI(); return true; }
+  showToast('Permission denied'); return false;
+}
+
+async function tryRestoreMasterHandle(){
+  if (!FS_ACCESS_SUPPORTED) { updateMasterFileUI(); return; }
+  try {
+    const handle = await loadHandleRef();
+    if (!handle) { updateMasterFileUI(); return; }
+    masterHandle = handle;
+    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    updateMasterFileUI();
+    const reconnectBtn = document.getElementById('masterReconnectBtn');
+    if (perm !== 'granted' && reconnectBtn) reconnectBtn.style.display = ''; // needs a click to re-grant
+  } catch (err) { /* handle may be stale (file moved/deleted) — leave disconnected */ }
+}
+
+// Chromium-specific quirk: a FileSystemFileHandle that was RESTORED from a
+// saved reference (IndexedDB, across a page reload — exactly what happens
+// here via tryRestoreMasterHandle) can have a stale internal cache of the
+// file's state. createWritable() then throws NoModificationAllowedError
+// ("...state had changed since it was read from disk") even though nothing
+// meaningful actually changed. Calling getFile() right before createWritable()
+// forces Chrome to re-read the file's current state and refresh that cache,
+// which is the standard fix for this. A freshly-picked handle in the SAME
+// session (via chooseMasterFile) doesn't usually hit this, but restored
+// handles do — so this refresh runs unconditionally, and the whole write is
+// retried once if the error still surfaces, since this specific race can
+// occasionally need a second attempt even after refreshing.
+async function writeToHandle(handle, text) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await handle.getFile(); // refresh Chrome's cached file state
+      const writable = await handle.createWritable();
+      await writable.write(text);
+      await writable.close();
+      return;
+    } catch (err) {
+      const isStaleCacheError = err && err.name === 'NoModificationAllowedError';
+      if (isStaleCacheError && attempt === 0) continue; // one retry after the refresh above
+      throw err;
+    }
+  }
+}
+
+async function saveToMasterFile(){
+  if (!masterHandle) { showToast('Choose a master file first'); return; }
+  try {
+    // Permission request MUST come first, immediately on the click — this
+    // matches loadFromMasterFile below, so the request stays tied to the
+    // original button click.
+    const perm = await masterHandle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { showToast('Permission denied'); return; }
+    const clean = entries.map(({ _key, ...rest }) => rest);
+    showToast('Saving\u2026');
+    await writeToHandle(masterHandle, JSON.stringify({ registry: clean, exported: new Date().toISOString() }));
+    showToast(`Saved ${clean.length.toLocaleString()} record(s) to ${masterHandle.name}`);
+  } catch (err) {
+    showToast('Save failed: ' + err.message);
+  }
+}
+
+async function loadFromMasterFile(){
+  if (!masterHandle) { showToast('Choose a master file first'); return; }
+  try {
+    const perm = await masterHandle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { showToast('Permission denied'); return; }
+    const file = await masterHandle.getFile();
+    const text = await file.text();
+    if (!text.trim()) { showToast('Master file is empty \u2014 nothing saved to it yet'); return; }
+    const data = JSON.parse(text);
+    await runImportPipeline(data, `Master file: ${masterHandle.name}`);
+  } catch (err) {
+    showToast('Load failed: ' + err.message);
+  }
+}
+
+function forgetMasterFile(){
+  masterHandle = null;
+  openHandleDB().then(hdb => {
+    const tx = hdb.transaction('handles', 'readwrite');
+    tx.objectStore('handles').delete('master');
+  });
+  updateMasterFileUI();
+  showToast('Disconnected');
+}
+
+async function resetToSeed(){
+  if(!confirm('This clears all entries and reloads the seed set. Export first if you want to keep current data. Continue?')) return;
+  await clearStore();
+  for(const e of SEED) await putEntry(e);
+  entries = await getAll();
+  render();
+  showToast('Reset to seed data');
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._h);
+  showToast._h = setTimeout(() => t.classList.remove('show'), 1800);
+}
+
+document.getElementById('search').addEventListener('input', render);
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    activeFilter = chip.dataset.filterType;
+    render();
+  });
+});
+
+init();
+</script>
+</body>
+</html>
