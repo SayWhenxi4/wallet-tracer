@@ -391,9 +391,8 @@
   .method-lead { font-size: 13.5px; color: var(--text-2); line-height: 1.6; margin: 0 0 16px; }
   .rule { border-left: 3px solid var(--brass); padding: 4px 0 4px 14px; margin: 0 0 16px; }
   .rule.warn { border-left-color: var(--alert); }
-  .rule h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--text); font-weight: 600; }
+  .rule h4 { margin: 0 0 4px; font-size: 13.5px; color: var(--alert-soft); font-weight: 600; }
   .rule p { margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.55; }
-  .rule.warn h4 { color: var(--alert-soft); }
   .app-footer { max-width: 700px; margin: 34px auto 10px; text-align: center; }
   .app-footer p { font-size: 11.5px; color: var(--text-3); line-height: 1.7; }
   .addr-full { word-break: break-all; }
@@ -524,10 +523,11 @@
        available for the first investigation. -->
   <div class="main-grid empty" id="mainGrid" style="margin-bottom:20px;">
     <div class="graph-card">
-      <div class="graph-header">
-        <h2 class="card-title">Network map</h2>
-        <div class="legend" id="legend"></div>
+      <div class="graph-header" id="controlsCollapseHeader" onclick="toggleControlsCollapse()" style="cursor:pointer; user-select:none;">
+        <h2 class="card-title"><span id="controlsCollapseArrow" style="display:inline-block; margin-right:6px; font-family:var(--mono); color:var(--brass); font-weight:normal;">&#9660;</span>Network map</h2>
       </div>
+      <div id="controlsCollapseBody">
+      <div class="legend" id="legend"></div>
       <div class="filter-row" id="filterRow" style="display:flex; align-items:center; gap:8px; margin:3px 0; flex-wrap:wrap;">
         <label style="font-size:9.5px; color:#97a4bb; white-space:nowrap;">Show wallets with &ge; <span id="minTxLabel">2</span> tx</label>
         <input type="range" id="minTxSlider" min="1" max="10" value="2" style="flex:1; min-width:110px; height:3px;">
@@ -562,6 +562,7 @@
         <label for="treeYSpaceSlider" style="font-size:9.5px; color:#97a4bb; white-space:nowrap; margin-left:6px;">Row spacing (vertical)</label>
         <input type="range" id="treeYSpaceSlider" min="10" max="60" step="2" style="width:120px;">
       </div>
+      </div>
       <div class="graph-glow-wrap"><div class="graph-panel" id="graphPanel"></div></div>
     </div>
     <section class="controls">
@@ -590,7 +591,7 @@
           <button type="button" class="small" onclick="connectBoundaryMasterFile()">Connect master file…</button>
           <button type="button" class="small" onclick="reconnectBoundaryMasterFile()">Reconnect</button>
         </div>
-        <div style="font-size:9px; color:var(--text-2); margin:8px 0 4px;">Or, works on any device including mobile — export from BREAKPOINT (Cloud sync &rarr; Save to Dropbox, or Export JSON), download that file to this device, then import it here:</div>
+        <div style="font-size:9px; color:var(--text-2); margin:8px 0 4px;">Or, on any device: export from BREAKPOINT, then import it here.</div>
         <div style="display:flex; gap:6px; flex-wrap:wrap;">
           <input type="file" id="boundaryImportFileInput" accept="application/json,.json" style="display:none" onchange="importBoundaryRegistryFile(event)">
           <button type="button" class="small" onclick="document.getElementById('boundaryImportFileInput').click()">Import registry file&hellip;</button>
@@ -618,6 +619,18 @@
     </section>
     <div class="side-panel" id="sidePanel"></div>
   </div>
+
+  <details class="method-panel" id="gettingStartedPanel" open>
+    <summary class="method-summary">Getting started <span class="tagbadge">30 seconds</span></summary>
+    <div class="method-body">
+      <ol style="margin:0; padding-left:20px; font-size:12.5px; line-height:1.8; color:var(--text);">
+        <li>Pick a <b>chain</b>, paste the <b>wallet address</b>, choose a <b>scan depth</b>, click <b>Investigate</b>.</li>
+        <li>Click any node in the network map to inspect it, classify it, or trace it further.</li>
+        <li><i>Optional:</i> connect a <b>BREAKPOINT registry file</b> — BREAKPOINT is a companion tool that stores hand-verified addresses for known exchanges, bridges, and mixers. Connect its export here and this map recognizes those addresses automatically instead of showing them unclassified.</li>
+        <li>Click <b>Save network</b> when you're done — everything stays on your own device.</li>
+      </ol>
+    </div>
+  </details>
 
   <details class="method-panel" id="methodPanel">
     <summary class="method-summary">How to read what this tool tells you <span class="tagbadge">read me first</span></summary>
@@ -1475,6 +1488,22 @@ async function loadBoundaryHandleRef() {
   return new Promise((resolve, reject) => { const tx = hdb.transaction("handles", "readonly"); const req = tx.objectStore("handles").get("master"); req.onsuccess = () => resolve(req.result || null); req.onerror = () => reject(req.error); });
 }
 
+// Collapses the Network Map controls (legend + all filter/layout rows) down
+// to just the clickable header, so the graph panel can sit directly under
+// it — the whole point being that "Wallet Tracer" branding at the top of the
+// page and the full graph can both fit in one screenshot/screen at once,
+// without the controls block eating the space in between. Persisted so the
+// choice sticks across visits, same pattern as Breakpoint's collapsible trays.
+function toggleControlsCollapse(forceState) {
+  const body = document.getElementById("controlsCollapseBody");
+  const arrow = document.getElementById("controlsCollapseArrow");
+  if (!body || !arrow) return;
+  const isCollapsed = forceState !== undefined ? forceState : body.style.display !== "none";
+  body.style.display = isCollapsed ? "none" : "";
+  arrow.innerHTML = isCollapsed ? "&#9658;" : "&#9660;"; // right-pointing when collapsed, down when open
+  localStorage.setItem("wt_controls_collapsed", isCollapsed ? "1" : "0");
+}
+
 function updateBoundaryStatusUI(text) {
   const el = document.getElementById("boundaryRegistryStatus");
   if (el) el.textContent = text;
@@ -1492,26 +1521,26 @@ function updateBoundaryStatusUI(text) {
 // below for the manual alternative, which is a one-time action, not
 // something this auto-check function can do on its own.
 async function autoSyncBoundaryRegistryIfChanged() {
-  if (!FS_ACCESS_SUPPORTED_BOUNDARY) { updateBoundaryStatusUI("Boundary registry: not connected. Direct file access isn't supported on this browser \u2014 use \"Import registry file\u2026\" instead."); return; }
+  if (!FS_ACCESS_SUPPORTED_BOUNDARY) { updateBoundaryStatusUI("Not connected \u2014 use \"Import registry file\u2026\" below."); return; }
   if (!boundaryMasterHandle) { try { boundaryMasterHandle = await loadBoundaryHandleRef(); } catch (e) {} }
-  if (!boundaryMasterHandle) { updateBoundaryStatusUI("Boundary registry: not connected. Use Settings to connect your BREAKPOINT master file, or use \"Import registry file\u2026\"."); return; }
+  if (!boundaryMasterHandle) { updateBoundaryStatusUI("Not connected \u2014 connect a master file, or import one below."); return; }
   let perm;
-  try { perm = await boundaryMasterHandle.queryPermission({ mode: "read" }); } catch (e) { updateBoundaryStatusUI("Boundary registry: connection lost (file moved or deleted?)."); return; }
-  if (perm !== "granted") { updateBoundaryStatusUI("Boundary registry: click Reconnect in Settings (browser requires a click to re-grant access)."); return; }
+  try { perm = await boundaryMasterHandle.queryPermission({ mode: "read" }); } catch (e) { updateBoundaryStatusUI("Connection lost (file moved or deleted?)."); return; }
+  if (perm !== "granted") { updateBoundaryStatusUI("Click Reconnect to re-grant access."); return; }
   try {
     const file = await boundaryMasterHandle.getFile();
     const lastSynced = parseInt(localStorage.getItem("bt_boundary_last_mtime") || "0", 10);
-    if (file.lastModified === lastSynced) { updateBoundaryStatusUI(`Boundary registry: up to date (${file.name}).`); return; }
-    updateBoundaryStatusUI("Boundary registry: change detected, syncing\u2026");
+    if (file.lastModified === lastSynced) { updateBoundaryStatusUI(`Up to date (${file.name}).`); return; }
+    updateBoundaryStatusUI("Change detected, syncing\u2026");
     const text = await file.text();
-    if (!text.trim()) { updateBoundaryStatusUI("Boundary registry: master file is empty."); return; }
+    if (!text.trim()) { updateBoundaryStatusUI("Master file is empty."); return; }
     const data = JSON.parse(text);
     const list = Array.isArray(data) ? data : (data.registry || []);
     await syncBoundaryRegistry(list);
     localStorage.setItem("bt_boundary_last_mtime", String(file.lastModified));
-    updateBoundaryStatusUI(`Boundary registry: synced ${list.length.toLocaleString()} entries from ${file.name}.`);
+    updateBoundaryStatusUI(`Synced ${list.length.toLocaleString()} entries from ${file.name}.`);
   } catch (err) {
-    updateBoundaryStatusUI("Boundary registry: sync failed \u2014 file changed unexpectedly or couldn't be read.");
+    updateBoundaryStatusUI("Sync failed \u2014 file changed unexpectedly or couldn't be read.");
   }
 }
 
@@ -1525,16 +1554,16 @@ async function importBoundaryRegistryFile(event) {
   event.target.value = ""; // allow re-importing the same filename later without it being a no-op
   if (!file) return;
   try {
-    updateBoundaryStatusUI("Boundary registry: reading file\u2026");
+    updateBoundaryStatusUI("Reading file\u2026");
     const text = await file.text();
-    if (!text.trim()) { updateBoundaryStatusUI("Boundary registry: that file is empty."); return; }
+    if (!text.trim()) { updateBoundaryStatusUI("That file is empty."); return; }
     const data = JSON.parse(text);
     const list = Array.isArray(data) ? data : (data.registry || []);
-    if (!list.length) { updateBoundaryStatusUI("Boundary registry: no entries found in that file."); return; }
+    if (!list.length) { updateBoundaryStatusUI("No entries found in that file."); return; }
     await syncBoundaryRegistry(list);
-    updateBoundaryStatusUI(`Boundary registry: imported ${list.length.toLocaleString()} entries from ${file.name}.`);
+    updateBoundaryStatusUI(`Imported ${list.length.toLocaleString()} entries from ${file.name}.`);
   } catch (err) {
-    updateBoundaryStatusUI("Boundary registry: import failed \u2014 " + err.message);
+    updateBoundaryStatusUI("Import failed \u2014 " + err.message);
   }
 }
 
@@ -1555,7 +1584,7 @@ async function reconnectBoundaryMasterFile() {
   if (!boundaryMasterHandle) return;
   const perm = await boundaryMasterHandle.requestPermission({ mode: "read" }); // requires this click — browsers won't grant silently
   if (perm === "granted") await autoSyncBoundaryRegistryIfChanged();
-  else updateBoundaryStatusUI("Boundary registry: permission denied.");
+  else updateBoundaryStatusUI("Permission denied.");
 }
 
 let graphCanvasRef = null; // set by initGraph2D; used by the exhibit export
@@ -9713,6 +9742,44 @@ function initGraph2D() {
 
     const w = canvas.__w || mount.clientWidth, h = canvas.__h || mount.clientHeight;
     ctx.clearRect(0, 0, w, h);
+
+    // Background watermark — same circle + crosshair + "V" mark as the site's
+    // own logo, drawn in screen space so it stays fixed in the panel
+    // regardless of how the graph itself is panned or zoomed (matching how
+    // Arkham anchors their logo in their own network-map background). Very
+    // low opacity by design: it should read as a faint part of the canvas,
+    // never compete with node/edge readability.
+    (function drawWatermark() {
+      const cx = w / 2, cy = h / 2;
+      const r = Math.min(w, h) * 0.30;
+      ctx.save();
+      ctx.globalAlpha = 0.14;
+      ctx.strokeStyle = "#C41E3A";
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      // Outer circle
+      ctx.lineWidth = r * 0.08;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      // Crosshair through the center
+      ctx.globalAlpha = 0.14 * 0.4; // matches the SVG's proportionally-fainter grid lines
+      ctx.lineWidth = r * 0.016;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r * 1.05); ctx.lineTo(cx, cy + r * 1.05);
+      ctx.moveTo(cx - r * 1.05, cy); ctx.lineTo(cx + r * 1.05, cy);
+      ctx.stroke();
+      // "V" chevron
+      ctx.globalAlpha = 0.14;
+      ctx.lineWidth = r * 0.12;
+      ctx.beginPath();
+      ctx.moveTo(cx - r * 0.5, cy - r * 0.55);
+      ctx.lineTo(cx, cy + r * 0.55);
+      ctx.lineTo(cx + r * 0.5, cy - r * 0.55);
+      ctx.stroke();
+      ctx.restore();
+    })();
+
     ctx.save();
     ctx.translate(w / 2 + panX, h / 2 + panY);
     ctx.scale(zoom, zoom);
@@ -10027,6 +10094,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAll();
   loadConfirmedExchanges().then(() => renderAll()); // async — re-render once the durable exchange registry lands
   loadConfirmedContracts().then(() => renderAll()); // async — re-render once the durable contract registry lands
+  toggleControlsCollapse(localStorage.getItem("wt_controls_collapsed") === "1");
   autoSyncBoundaryRegistryIfChanged(); // fire-and-forget — checks the connected master file for changes, silent if nothing changed
   setInterval(autoSyncBoundaryRegistryIfChanged, BOUNDARY_RESYNC_MS); // catch edits made to the master file while this tab stays open
   // NOTE: initGraph2D() moved to the END of init. It touches the canvas context,
