@@ -720,6 +720,7 @@ async function init(){
   tryRestoreMasterHandle();
   await handleDropboxRedirect(); // no-op unless we just came back from Dropbox's sign-in page
   await updateDropboxUI();
+  autoSyncFromDropboxIfChanged(); // fire-and-forget - silently pulls newer data if signed in, no popup
   const savedLink = localStorage.getItem('bp_dropbox_share_url');
   if (savedLink) {
     document.getElementById('dropboxShareLink').textContent = savedLink;
@@ -1387,6 +1388,54 @@ async function loadFromDropbox() {
     await runImportPipeline(data, 'Dropbox: ' + DROPBOX_FILE_PATH);
   } catch (err) {
     showToast('Dropbox load failed: ' + err.message);
+  }
+}
+
+// Silent, automatic version of the above — runs once on page load if signed
+// in, with no confirmation modal, since the point is "just show me the
+// current data" rather than a deliberate reviewed import. Uses the same
+// validation and merge-with-history logic as a manual import (so nothing is
+// silently overwritten without a recoverable prior version), it just skips
+// the "are you sure" step. Only actually does anything if the Dropbox copy's
+// own "exported" timestamp is newer than whatever this device last
+// auto-synced, so it's not re-processing 46+ records on every single load.
+async function autoSyncFromDropboxIfChanged() {
+  const token = await dropboxEnsureAccessToken();
+  if (!token) return; // not signed in on this device - nothing to do
+  try {
+    const resp = await fetch('https://content.dropboxapi.com/2/files/download', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Dropbox-API-Arg': JSON.stringify({ path: DROPBOX_FILE_PATH }) }
+    });
+    if (!resp.ok) return; // e.g. nothing saved to Dropbox yet - silently skip, this isn't worth an error on every load
+    const text = await resp.text();
+    if (!text.trim()) return;
+    const data = JSON.parse(text);
+    const exportedAt = data.exported || '';
+    const lastAutoSynced = localStorage.getItem('bp_dropbox_last_auto_sync') || '';
+    if (exportedAt && exportedAt === lastAutoSynced) return; // already current, nothing to do
+
+    const rawList = Array.isArray(data) ? data : (data.registry || []);
+    if (!Array.isArray(rawList) || !rawList.length) return;
+
+    const toWrite = [];
+    for (const raw of rawList) {
+      const v = validateEntry(raw);
+      if (!v.ok) continue; // same validation as manual import - malformed rows are silently skipped, not written
+      const key = computeKey(v.entry);
+      toWrite.push(mergeWithHistory(entryMap.get(key), v.entry, 'Dropbox auto-sync'));
+    }
+    if (!toWrite.length) return;
+
+    await putEntries(toWrite);
+    entries = await getAll();
+    render();
+    if (exportedAt) localStorage.setItem('bp_dropbox_last_auto_sync', exportedAt);
+    showToast(`Auto-synced ${toWrite.length.toLocaleString()} record(s) from Dropbox`);
+  } catch (err) {
+    // Auto-sync failing shouldn't interrupt page load with an error toast -
+    // the manual "Load from Dropbox" button remains available and will
+    // surface a real error message if someone explicitly tries it.
   }
 }
 
