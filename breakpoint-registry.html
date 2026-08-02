@@ -94,6 +94,7 @@
   .tag.exchange{ background:#173035; color:#5fc9d9; }
   .tag.token_contract{ background:#332b12; color:var(--amber); }
   .tag.dex{ background:#1f3320; color:#8fcf7a; }
+  .tag.whale{ background:#33241a; color:#e0a458; }
   .conf{ font-size:11px; }
   .conf.confirmed{ color:var(--green); }
   .conf.probable{ color:var(--amber); }
@@ -171,7 +172,7 @@
     </svg>
     BREAKPOINT
   </div>
-  <div class="brand-sub">Known blockchain backbone — bridges, mixers, exchanges, verified token contracts &amp; DEX routers. Documented infrastructure only, never a judgment call about a wallet. Feeds <b>Wallet-Tracer</b>'s boundary detection.</div>
+  <div class="brand-sub">Known blockchain backbone — bridges, mixers, exchanges, verified token contracts, DEX routers, and tracked whale wallets. Documented infrastructure and notable holdings, sourced and verified before entry. Feeds <b>Wallet-Tracer</b>'s boundary detection.</div>
 </header>
 
 <main>
@@ -191,6 +192,7 @@
     <div class="chip" data-filter-type="exchange">Exchanges</div>
     <div class="chip" data-filter-type="token_contract">Token contracts</div>
     <div class="chip" data-filter-type="dex">DEX / swap</div>
+    <div class="chip" data-filter-type="whale">Whale wallets</div>
     <button type="button" class="ghost" onclick="exportFilteredJSON()" style="margin-left:auto;">Export filtered results</button>
   </div>
   <div class="note" id="filteredCount" style="margin:-6px 0 10px; font-size:11px;"></div>
@@ -241,6 +243,7 @@
           <option value="exchange">exchange</option>
           <option value="token_contract">token_contract</option>
           <option value="dex">dex</option>
+          <option value="whale">whale</option>
         </select>
       </div>
       <div>
@@ -339,7 +342,7 @@ let activeFilter = 'all';
 // Whitelists. Anything outside these is REJECTED at validation time, not
 // coerced — a bulk import is exactly the situation where a malformed or
 // hostile record could otherwise inject class names / break rendering.
-const ALLOWED_TYPES = ['bridge', 'mixer', 'privacy_pool', 'router', 'exchange', 'token_contract', 'dex'];
+const ALLOWED_TYPES = ['bridge', 'mixer', 'privacy_pool', 'router', 'exchange', 'token_contract', 'dex', 'whale'];
 const ALLOWED_CONFIDENCE = ['confirmed', 'probable', 'historical'];
 const MAX_FIELD_LEN = { address: 128, chain: 40, protocol: 300, notes: 4000, source: 200 };
 
@@ -729,7 +732,7 @@ async function init(){
 }
 
 function typeLabel(t){
-  return { bridge:'bridge', mixer:'mixer', privacy_pool:'privacy pool', router:'router', exchange:'exchange', token_contract:'token contract', dex:'DEX / swap' }[t] || t;
+  return { bridge:'bridge', mixer:'mixer', privacy_pool:'privacy pool', router:'router', exchange:'exchange', token_contract:'token contract', dex:'DEX / swap', whale:'whale wallet' }[t] || t;
 }
 
 function getFilteredList(){
@@ -826,6 +829,7 @@ function render(){
     total: entries.length,
     bridges: entries.filter(e=>e.type==='bridge').length,
     mixers: entries.filter(e=>e.type==='mixer').length,
+    whales: entries.filter(e=>e.type==='whale').length,
     confirmed: entries.filter(e=>e.confidence==='confirmed').length,
     chains: new Set(entries.map(e=>e.chain)).size
   };
@@ -833,6 +837,7 @@ function render(){
     <div class="stat"><div class="n">${stats.total}</div><div class="l">Total entries</div></div>
     <div class="stat"><div class="n">${stats.bridges}</div><div class="l">Bridges</div></div>
     <div class="stat"><div class="n">${stats.mixers}</div><div class="l">Mixers</div></div>
+    <div class="stat"><div class="n">${stats.whales}</div><div class="l">Whale wallets</div></div>
     <div class="stat"><div class="n">${stats.confirmed}</div><div class="l">Confirmed</div></div>
     <div class="stat"><div class="n">${stats.chains}</div><div class="l">Chains covered</div></div>
   `;
