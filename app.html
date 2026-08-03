@@ -343,6 +343,52 @@
   .flag-text a:hover { color: #f2a794; }
   .footnote { font-size: 13px; color: var(--text-3); text-align: center; max-width: 700px; margin: 20px auto 0; }
 
+  /* ---------- AI suggestion module (BYOK — see ensureAiAvailable) ---------- */
+  /* Deliberately distinct from .flag (amber/red evidence flags): AI output is
+     an unverified draft until a human clicks Confirm, so it gets its own
+     visual language — dashed border by default, never the same solid style
+     used for on-chain-derived flags — so the two can never be confused at a
+     glance, including in screenshots dropped into a filing. */
+  .ai-card {
+    border: 1px dashed #5c6b8a; background: rgba(79,157,255,0.05);
+    padding: 10px 12px; border-radius: var(--radius); margin-bottom: 8px;
+  }
+  .ai-card.ai-reviewed-confirm { border-style: solid; border-color: #2f9e5c; background: rgba(47,158,92,0.06); }
+  .ai-card.ai-reviewed-reject { border-style: solid; border-color: #a13d2c; background: rgba(161,61,44,0.05); opacity: 0.65; }
+  .ai-card.ai-card-conflict { border-style: solid; border-color: #e0b04a; background: rgba(230,168,48,0.05); }
+  .ai-card.ai-card-loading {
+    border-style: solid; border-color: #5fd98a;
+    animation: aiPulseGlow 1.6s ease-in-out infinite;
+  }
+  @keyframes aiPulseGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(95,217,138,0.35); border-color: #2f9e5c; }
+    50% { box-shadow: 0 0 10px 2px rgba(95,217,138,0.45); border-color: #5fd98a; }
+  }
+  .ai-card-collapsed { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
+  .ai-card-collapsed:hover { background: rgba(79,157,255,0.08); }
+  .ai-badge {
+    display: inline-block; font-family: var(--data); font-size: 10px; font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 8px; border-radius: 100px;
+    margin: 0 6px 6px 0;
+  }
+  .ai-badge.unverified { background: rgba(139,150,168,0.15); color: #97a4bb; border: 1px dashed #5c6b8a; }
+  .ai-badge.conf-high { background: rgba(79,157,255,0.15); color: #7fb4ff; }
+  .ai-badge.conf-medium { background: rgba(230,168,48,0.15); color: #e0b04a; }
+  .ai-badge.conf-low, .ai-badge.conf-insufficient_evidence { background: rgba(192,57,43,0.15); color: #e08a7a; }
+  .ai-badge.confirmed { background: rgba(47,158,92,0.15); color: #5fd98a; }
+  .ai-badge.rejected { background: rgba(161,61,44,0.15); color: #e08a7a; }
+  .ai-evidence { margin: 6px 0; padding-left: 16px; font-size: 12px; color: var(--text-2); }
+  .ai-evidence li { margin-bottom: 3px; }
+  .ai-usage-line { font-family: var(--data); font-size: 10.5px; color: var(--text-3); margin-top: 8px; }
+  .ai-addr-mention { white-space: nowrap; }
+  .ai-addr-mention a { font-family: var(--data); color: #7fb4ff; text-decoration: underline; text-underline-offset: 2px; }
+  .ai-addr-mention a:hover { color: #a8cdff; }
+  .ai-copy-addr-btn {
+    background: transparent; border: none; color: var(--text-3); cursor: pointer;
+    font-size: 11px; padding: 0 2px; margin-left: 1px; line-height: 1;
+  }
+  .ai-copy-addr-btn:hover { color: #7fb4ff; }
+
   /* ---------- Onboarding & footer ---------- */
   .onboarding-card {
     max-width: 720px; margin: 28px auto; background: var(--ink-1); border: 1px solid var(--line);
@@ -554,6 +600,7 @@
           <button type="button" class="small layout-mode-btn" id="layoutModeTreeBtn" style="padding:3px 10px; font-size:10.5px;">Radial tree (Noxos-style)</button>
         </div>
         <button type="button" class="small" id="resetRowSpacingBtn" style="padding:3px 10px; font-size:10.5px; display:none;">Reset row spacing</button>
+        <button type="button" class="small" id="resetViewBtn" style="padding:3px 10px; font-size:10.5px; border-color:var(--brass); color:var(--brass);" title="Resets pan, zoom, and row spacing back to default — use this if a pinch gesture leaves the map looking stretched or oddly zoomed">Reset view ⤢</button>
         <span class="card-hint" style="font-size:9.5px;" id="layoutModeHint"></span>
       </div>
       <div class="filter-row" id="treeSpacingRow" style="display:none; align-items:center; gap:10px; margin:3px 0; flex-wrap:wrap;">
@@ -812,6 +859,7 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
         <button class="small backup-btn" id="downloadGzBtn">Download compressed (.json.gz)</button>
         <button class="small backup-btn" id="restoreBtn" style="border-color:#e8c14a; color:#f3d878;">Restore backup</button>
         <button class="small backup-btn" id="exportBoundaryBtn" style="border-color:#c9962a; color:#e0b04a;" title="Packages everything you've marked as exchange or verified contract into a file BREAKPOINT can import directly">Export verified infrastructure for BREAKPOINT</button>
+        <button class="small backup-btn" id="aiSettingsBtn" style="border-color:#4f9dff; color:#7fb4ff;" title="Bring your own Anthropic API key. Calls go directly from this device to api.anthropic.com — nothing passes through any Wallet-Tracer server.">AI Analysis — Settings 🤖</button>
       </span>
       <input type="file" id="fileInput" accept="application/json,.json,.gz" style="display:none" />
     </div>
@@ -1641,6 +1689,31 @@ function updateLayoutModeButtons() {
 function short(addr) { if (!addr) return "—"; const d = displayAddr(addr); return d.slice(0,6) + "…" + d.slice(-4); }
 function deployedAddr(d) { return typeof d === "string" ? d : d.address; }
 function escapeHtml(s) { return (s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+// Turns any full address mentioned inside free-text (AI evidence citations,
+// reasoning, follow-up questions) into a clickable explorer link + a copy
+// button. The model already outputs full, real addresses in its text — they
+// just weren't actionable once dropped into a paragraph, forcing a manual
+// retype/select-and-copy to actually go look one up. Escapes HTML FIRST,
+// then matches against the escaped text (safe: 0x.../r.../base58 addresses
+// contain no HTML-special characters, so escaping never breaks a match).
+function linkifyAiText(text, chainKey) {
+  const escaped = escapeHtml(text || "");
+  const c = CHAINS[chainKey] || CHAINS.flare;
+  const isXrpl = (c.kind || "evm") === "xrpl";
+  const isBtc = (c.kind || "evm") === "btc";
+  // EVM: 0x + 40 hex. XRPL: r + 25-34 base58 chars. BTC: 1/3/bc1 forms —
+  // kept loose since this is just for making case addresses clickable, not
+  // strict validation.
+  const pattern = isXrpl ? /\br[1-9A-HJ-NP-Za-km-z]{25,34}\b/g
+    : isBtc ? /\b(?:bc1[a-z0-9]{25,60}|[13][a-km-zA-HJ-NP-Z1-9]{25,34})\b/g
+    : /\b0x[a-fA-F0-9]{40}\b/g;
+  return escaped.replace(pattern, (addr) => {
+    const url = explorerAddressUrl(chainKey, addr);
+    const shortAddr = short(addr);
+    return `<span class="ai-addr-mention"><a href="${url}" target="_blank" rel="noopener" title="${addr}">${shortAddr}</a><button type="button" class="ai-copy-addr-btn" data-addr="${addr}" title="Copy full address">⧉</button></span>`;
+  });
+}
 
 // ============================================================================
 // CONTRACT INTEL — read clues straight out of a contract's runtime bytecode.
@@ -2493,6 +2566,36 @@ function renderDeployedContractsTable() {
 async function ensureAddressTag(node) {
   if (node.tagChecked) return;
   node.tagChecked = true;
+  // Cross-case durable registries take precedence over everything below —
+  // an address you've already confirmed as an exchange or verified contract
+  // in ANY past investigation should never come up unclassified or get
+  // re-prompted for confirmation in a new one. That confirmation already
+  // happened; re-asking is exactly the redundant busywork this exists to
+  // prevent. Checked before the per-chain branches so it applies uniformly
+  // across EVM/XRPL/Bitcoin, and before ANY explorer call.
+  const registryKey = node.address.toLowerCase();
+  const registryExchangeLabel = confirmedExchangesCache[registryKey];
+  if (registryExchangeLabel && (!node.category || node.category === "unclassified")) {
+    node.category = "exchange";
+    node.userExchange = true;
+    node.manualCategory = true; // this WAS a human decision — just made in an earlier case
+    if (!node.autoLabel) node.autoLabel = registryExchangeLabel;
+    markNodeDirty(node.address);
+    scheduleSave();
+    return;
+  }
+  const registryContract = confirmedContractsCache[computeBoundaryKey(node.chain, node.address)];
+  if (registryContract && (!node.category || node.category === "unclassified")) {
+    node.category = "contract";
+    node.verifiedContract = true;
+    node.manualCategory = true;
+    node.isContract = true;
+    if (registryContract.type) node.contractType = registryContract.type;
+    if (!node.autoLabel) node.autoLabel = registryContract.label;
+    markNodeDirty(node.address);
+    scheduleSave();
+    return;
+  }
   // Bitcoin: check hardcoded exchange list. No explorer API for labels.
   if (chainKind(node.chain) === "btc") {
     const knownBtcEx = KNOWN_BTC_EXCHANGES[node.address.toLowerCase()];
@@ -4199,7 +4302,7 @@ function promptContractDetails(defaultLabel) {
         </select>
         <div style="display:flex;gap:8px;margin-top:14px;">
           <button type="button" id="__ccCancel" class="small">Cancel</button>
-          <button type="button" id="__ccOk" style="border-color:var(--brass); color:var(--brass);">Confirm</button>
+          <button type="button" id="__ccOk" class="small" style="border-color:var(--brass); color:var(--brass);">Confirm</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -4237,7 +4340,7 @@ function promptExchangeDetails(defaultLabel) {
         <input type="text" id="__exLabel" placeholder="e.g. OKX, Bybit Hot Wallet, HTX Recovery Hot Wallet 1" style="width:100%;">
         <div style="display:flex;gap:8px;margin-top:14px;">
           <button type="button" id="__exCancel" class="small">Cancel</button>
-          <button type="button" id="__exOk" style="border-color:var(--brass); color:var(--brass);">Confirm</button>
+          <button type="button" id="__exOk" class="small" style="border-color:var(--brass); color:var(--brass);">Confirm</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -4263,6 +4366,464 @@ function removeConfirmedExchange(address) {
   delete confirmedExchangesCache[key];
   idbSet(CONFIRMED_EXCHANGES_KEY, confirmedExchangesCache).catch(() => {});
 }
+
+// ============================================================================
+// AI ANALYSIS MODULE — bring-your-own-key (BYOK), fully local
+// ----------------------------------------------------------------------------
+// Design principles (do not relax these without re-reading this whole block):
+//   1. The user's Anthropic API key never leaves this device except in
+//      requests TO api.anthropic.com. No Wallet-Tracer server exists to send
+//      it to — same no-account/no-server model as the rest of the app.
+//   2. AI output is ALWAYS advisory. It is stored in its own field
+//      (node.aiSuggestion), completely separate from node.category /
+//      node.autoLabel / confirmedExchangesCache / confirmedContractsCache.
+//      Nothing the AI returns is ever written into those authoritative
+//      fields automatically — a human has to take the same manual action
+//      (Mark as exchange / Mark as verified contract) that already exists,
+//      exactly as if the AI had never spoken.
+//   3. Confirmed data always wins. If an address is already in
+//      KNOWN_BTC_EXCHANGES, confirmedExchangesCache, confirmedContractsCache,
+//      or has a manually-set category, the AI is never even called for it —
+//      see aiMergeCheck() below.
+//   4. The model is contractually required (via system prompt + response
+//      validation) to cite specific evidence and provide an alternate
+//      explanation. Any response missing required fields, or with fewer
+//      than 2 cited evidence points, is rejected before it's ever rendered.
+//   5. Calls are opt-in per wallet (a button click), never automatic —
+//      unlike ensureAddressTag's fire-and-forget explorer lookups, AI calls
+//      cost the user real money and should only happen when they ask.
+const AI_SETTINGS_KEY = "ai-settings-v1";
+let aiSettingsCache = { apiKey: "", model: "claude-sonnet-4-6", totalInputTokens: 0, totalOutputTokens: 0 };
+async function loadAiSettings() {
+  try { aiSettingsCache = Object.assign({ apiKey: "", model: "claude-sonnet-4-6", totalInputTokens: 0, totalOutputTokens: 0 }, (await idbGet(AI_SETTINGS_KEY)) || {}); }
+  catch { /* keep defaults */ }
+}
+function saveAiSettings() {
+  idbSet(AI_SETTINGS_KEY, aiSettingsCache).catch(() => {});
+}
+function aiIsConfigured() { return !!(aiSettingsCache.apiKey && aiSettingsCache.apiKey.trim()); }
+
+// $/million tokens — update if Anthropic's published rates change.
+// Shown to the user as an estimate, not a guaranteed final cost.
+const AI_MODEL_PRICING = {
+  "claude-sonnet-4-6": { input: 2.00, output: 10.00, label: "Sonnet (balanced — recommended)" },
+  "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, label: "Haiku (cheapest — simple pattern checks)" },
+};
+
+// Settings modal — same overlay pattern as promptContractDetails/promptExchangeDetails.
+function openAiSettingsModal() {
+  const overlay = document.createElement("div");
+  overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
+  const totalTok = (aiSettingsCache.totalInputTokens || 0) + (aiSettingsCache.totalOutputTokens || 0);
+  const pricing = AI_MODEL_PRICING[aiSettingsCache.model] || AI_MODEL_PRICING["claude-sonnet-4-6"];
+  const estCost = ((aiSettingsCache.totalInputTokens || 0) * pricing.input + (aiSettingsCache.totalOutputTokens || 0) * pricing.output) / 1_000_000;
+  overlay.innerHTML = `
+    <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:460px;width:100%;padding:20px;">
+      <h3 style="margin:0 0 10px;font-size:14px;color:var(--text);">AI Analysis — Settings</h3>
+      <p style="margin:0 0 12px;font-size:12.5px;color:var(--text-2);">
+        Bring your own Anthropic API key. Requests go directly from this browser to
+        <code>api.anthropic.com</code> — nothing passes through any Wallet-Tracer server, because there isn't one.
+        Get a key at <a href="https://platform.claude.com" target="_blank" rel="noopener" style="color:var(--brass);">platform.claude.com</a>.
+        The key is stored only in this browser's local database on this device.
+      </p>
+      <label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">Anthropic API key</label>
+      <input type="password" id="__aiKeyInput" placeholder="sk-ant-..." autocomplete="off" style="width:100%; margin-bottom:12px; font-family:var(--data);" value="${escapeHtml(aiSettingsCache.apiKey || "")}">
+      <label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">Model</label>
+      <select id="__aiModelSelect" style="width:100%; margin-bottom:12px;">
+        ${Object.entries(AI_MODEL_PRICING).map(([id, m]) => `<option value="${id}" ${aiSettingsCache.model === id ? "selected" : ""}>${escapeHtml(m.label)}</option>`).join("")}
+      </select>
+      <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:flex-start;">
+        <button type="button" id="__aiTestBtn" class="small">Test connection</button>
+        <span id="__aiTestStatus" style="font-size:11.5px; color:var(--text-3); flex-basis:100%; line-height:1.5;"></span>
+      </div>
+      <p class="ai-usage-line" style="margin-bottom:14px;">Session usage: ${totalTok.toLocaleString()} tokens · roughly $${estCost.toFixed(4)} at current ${pricing.label.split(" ")[0]} rates. A typical full case runs a few dollars total.</p>
+      <div style="display:flex;gap:8px;">
+        <button type="button" id="__aiCancel" class="small">Close</button>
+        <button type="button" id="__aiSave" class="small" style="border-color:var(--brass); color:var(--brass);">Save</button>
+        <button type="button" id="__aiClear" class="small" style="border-color:#a13d2c; color:#e08a7a; margin-left:auto;">Clear key</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const cleanup = () => overlay.remove();
+  overlay.querySelector("#__aiCancel").onclick = cleanup;
+  overlay.querySelector("#__aiClear").onclick = () => {
+    aiSettingsCache.apiKey = "";
+    saveAiSettings();
+    overlay.querySelector("#__aiKeyInput").value = "";
+  };
+  overlay.querySelector("#__aiSave").onclick = () => {
+    aiSettingsCache.apiKey = overlay.querySelector("#__aiKeyInput").value.trim();
+    aiSettingsCache.model = overlay.querySelector("#__aiModelSelect").value;
+    saveAiSettings();
+    cleanup();
+    renderAll();
+  };
+  overlay.querySelector("#__aiTestBtn").onclick = async () => {
+    const statusEl = overlay.querySelector("#__aiTestStatus");
+    const keyToTest = overlay.querySelector("#__aiKeyInput").value.trim();
+    if (!keyToTest) { statusEl.textContent = "Enter a key first"; statusEl.style.color = "#e08a7a"; return; }
+    statusEl.textContent = "Testing…"; statusEl.style.color = "var(--text-3)";
+    try {
+      const res = await callAnthropicApi(keyToTest, "claude-haiku-4-5-20251001", "Reply with exactly one word: OK", "ping");
+      const text = (res.content || []).find(b => b.type === "text")?.text || "";
+      if (text.toUpperCase().includes("OK")) { statusEl.textContent = "Connected ✓"; statusEl.style.color = "#5fd98a"; }
+      else { statusEl.textContent = "Unexpected response"; statusEl.style.color = "#e08a7a"; }
+    } catch (err) {
+      const msg = String(err.detail || err.message || err);
+      const isBilling = /credit balance is too low/i.test(msg);
+      statusEl.innerHTML = isBilling
+        ? `Failed: no credits on this account yet. <a href="https://platform.claude.com/settings/billing" target="_blank" rel="noopener" style="color:#e0b04a;">Add billing / credits →</a>`
+        : `Failed: ${escapeHtml(msg)}`;
+      statusEl.style.color = "#e08a7a";
+    }
+  };
+}
+
+// Direct browser call to Anthropic's Messages API. The
+// anthropic-dangerous-direct-browser-access header is Anthropic's documented
+// opt-in for exactly this pattern: https://docs.claude.com — the "dangerous"
+// naming refers to shipping YOUR OWN key in client code, not to a user
+// supplying their own key to a client-side tool, which is the sanctioned
+// BYOK use case this module implements.
+async function callAnthropicApi(apiKey, model, systemPrompt, userMessage) {
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 2048,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+  });
+  if (!res.ok) {
+    const bodyText = await res.text();
+    // Anthropic's actual error reason lives in error.message, not the raw
+    // body — a billing/credits problem, a bad model string, and a malformed
+    // key all come back as the same HTTP 400 + "invalid_request_error" type,
+    // and only the message text tells them apart. Fall back to the raw body
+    // (untruncated) if it isn't JSON, rather than swallowing detail.
+    let detail = bodyText;
+    try {
+      const parsedErr = JSON.parse(bodyText);
+      if (parsedErr?.error?.message) detail = parsedErr.error.message;
+    } catch { /* not JSON — keep raw body */ }
+    const err = new Error(`API error ${res.status}: ${detail}`);
+    err.status = res.status;
+    err.detail = detail;
+    throw err;
+  }
+  return await res.json();
+}
+
+// System prompt: forces structured, cited, non-definitive output. See the
+// module header above for why each rule exists. Rule 7 exists specifically
+// because of a documented mistake — high-volume, high-counterparty-diversity,
+// near-zero-value-retention wallets look like criminal "fund movers" on
+// volume alone but are the textbook signature of an exchange hot wallet.
+const AI_SYSTEM_PROMPT = `You are a blockchain forensics evidence-review assistant embedded in a wallet tracing tool used to prepare law-enforcement and exchange filings. Your job is NOT to declare identities. Your job is to evaluate behavioral evidence and output a structured, cited, confidence-rated suggestion that a human investigator will independently verify before it is used in any report or filing.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object. No markdown, no preamble, no explanation outside the JSON.
+2. Never assert a definitive real-world identity for THIS wallet. Only describe which known behavioral pattern the evidence most resembles (e.g. "centralized exchange hot wallet", "peel chain / layering", "mixer or privacy pool", "personal wallet", "insufficient evidence").
+3. Every tag you suggest MUST be backed by at least 2 specific data points drawn directly from the input JSON. Cite the exact field/value you are relying on.
+4. Assign a confidence level: "high" only if multiple strong independent signals agree; "medium" if signals are suggestive but could have alternate explanations; "low" if the pattern is ambiguous or thin.
+5. Always list at least one plausible alternate explanation for the same data, even for your top suggestion. This is mandatory, not optional.
+6. If the evidence is genuinely insufficient or contradictory, your tag must be "insufficient_evidence" — do not force a guess.
+7. Never treat high transaction volume alone as evidence of illicit activity. High volume with high counterparty diversity and near-zero value retention is classically consistent with exchange hot-wallet behavior, not criminal activity — weigh this correctly.
+8. counterparty_context entries carry investigator-established facts, not automated guesses: confirmed_registry_label comes from the investigator's own durable confirmed-exchange registry; investigator_classification marked "(human-confirmed)" was a manual judgment call by the investigator, not an algorithm; investigator_notes is text the investigator personally wrote about that specific address from their own casework. Treat these as reliable ground truth about the COUNTERPARTY'S identity/role — do not hedge on whether e.g. a confirmed_registry_label is really an exchange. Your job is to synthesize what these established facts, taken together with this wallet's own flow pattern (who it received from, who it sent to, timing, concentration), imply about THIS wallet's role in the network — that synthesis is still your inference and still needs its own confidence tier and evidence citations, but it should be built ON TOP OF the confirmed facts rather than ignoring them.
+9. this_wallet_investigator_notes, if present, carries the SAME evidentiary weight as counterparty investigator_notes in rule 8 — it is the investigator's own established conclusion from their own casework, not a hint to be weighed against and potentially overridden by thin transactional statistics. If it directly asserts a role ("scam contract deployer", "consolidator", "feeder wallet"), your synthesis should build on that as fact. Do NOT return "insufficient_evidence" or flag inconsistency solely because the raw transaction/value numbers look thin or ambiguous in isolation — thin transactional statistics are exactly what you'd expect from an infrastructure wallet (a deployer, a one-time relay) as opposed to a high-volume fund-movement wallet, and are not by themselves grounds to doubt an investigator's direct, specific statement about this address.
+10. this_wallet_current_classification, if present, is what this wallet is ALREADY marked as (investigators do sometimes revisit and re-run analysis on wallets they've previously classified, including ones they now suspect they got wrong). Independently assess whether THIS wallet's own behavioral evidence actually supports that existing classification. Set consistent_with_current_classification to true if your independent read agrees, false if you see a SPECIFIC evidence-based reason to doubt it, or null if this_wallet_current_classification itself is null (nothing to check against). If you set it to false, reverification_reason MUST cite the specific conflicting evidence — do not merely say "worth double-checking" with no basis. This is a flag for the human investigator to look again, never an override: you are not declaring the existing classification wrong, only that your independent read of the evidence doesn't match it and a second look is warranted.
+11. Near-zero value retention (outbound_total_value close to inbound_total_value) is NOT by itself distinguishing evidence for "exchange hot wallet" — it is equally consistent with (a) legitimate sweeping to that same entity's OWN cold storage / treasury, and (b) pure pass-through relay to unrelated external wallets. These have very different implications and low retention alone cannot tell them apart. Whenever low retention contributes to your reasoning, you MUST populate followup_question with a specific, answerable question asking the investigator to check whether the top outbound recipients are the same entity's own custody addresses or unrelated external wallets. FIRST check counterparty_context yourself: if any top recipient already carries a confirmed_registry_label or investigator_notes tying it to the same entity (e.g. a labeled cold-storage or treasury address for that exchange), answer the question yourself using that evidence in reasoning_note and set followup_question to null — only leave it as an open question when the relevant counterparty is genuinely unlabeled and unconfirmed. Set followup_question to null whenever retention isn't part of your reasoning at all.
+12. If this_wallet_investigator_notes contains a direct question (look for "?" or interrogative phrasing like "why", "is this", "does this", "who is"), you MUST directly attempt to answer it in reasoning_note using whatever quantitative evidence is available here (inbound_total_value vs outbound_total_value, counterparty diversity, confirmed_registry_label / investigator_classification / also_directly_connected_to_N_other_confirmed_scam_wallets on counterparties, timing). Give your best evidence-grounded answer even if partial — do not simply acknowledge the question was asked without attempting to answer it, and do not leave it for the investigator to re-derive themselves from data you already have in front of you.
+13. zero_value_edge_note and also_directly_connected_to_N_other_confirmed_scam_wallets (on counterparty_context entries) are additional structural signals: zero-value edges on an EVM chain typically mean contract deployment or contract-call activity, not an absence of evidence — read zero_value_edge_note when present and weigh it accordingly rather than treating a mostly-zero-value wallet as merely "thin data." A counterparty already wired into multiple OTHER confirmed scam wallets is a meaningfully different fact than an isolated unlabeled counterparty — factor that proximity into your synthesis of what role THIS wallet plays, not just its direct one-hop neighbors in isolation.
+14. aggregate_confirmed_scam_exposure is computed by the application directly from the full graph (every counterparty, not just the ones listed in counterparty_context) — outbound_pct_to_confirmed_scam_wallets and inbound_pct_from_confirmed_scam_wallets are hard numbers, not estimates, and only ever count HUMAN-CONFIRMED scam wallets (the strictest tier — never automated-only tags). When either percentage is large enough that pure chance/scale is no longer a credible explanation for a legitimate high-volume wallet (as a rough guide: roughly 15%+ of total value, and/or several distinct human-confirmed scam counterparties rather than one or two), set regulatory_referral_flag to true and populate regulatory_referral_note. That note must: (a) cite the specific percentage and dollar/token value from aggregate_confirmed_scam_exposure, not a vague impression; (b) explicitly frame this as a recommendation to document the finding and refer it for regulatory/law-enforcement review — NEVER as a legal conclusion that the wallet's operator is complicit, since the same on-chain signature is also consistent with a legitimate exchange being abused at scale by the same scam network as one of many customers; (c) note that both interpretations remain open pending institutional-level review, which is exactly the kind of determination outside what on-chain analysis alone can settle. Set regulatory_referral_flag to false (with regulatory_referral_note null) whenever the percentages are low or driven by only one or two counterparties out of many — that's within the range of what scale alone explains and does not warrant this framing.
+
+Output schema (exact keys):
+{
+  "suggested_pattern": string,
+  "confidence": "high" | "medium" | "low" | "insufficient_evidence",
+  "evidence": [string, ...],
+  "alternate_explanation": string,
+  "reasoning_note": string,
+  "consistent_with_current_classification": true | false | null,
+  "reverification_reason": string | null,
+  "followup_question": string | null,
+  "regulatory_referral_flag": true | false,
+  "regulatory_referral_note": string | null
+}`;
+
+// Merge-order rule: confirmed data always wins, AI is never even called for
+// an address that's already known. Mirrors ensureAddressTag's precedence.
+function aiAlreadyConfirmed(node) {
+  if (node.manualCategory && node.category && node.category !== "unclassified") return true;
+  if (node.userExchange || node.verifiedContract) return true;
+  const key = node.address.toLowerCase();
+  if (confirmedExchangesCache[key]) return true;
+  if (chainKind(node.chain) === "btc" && KNOWN_BTC_EXCHANGES[key]) return true;
+  const boundaryKey = computeBoundaryKey(node.chain, node.address);
+  if (confirmedContractsCache[boundaryKey]) return true;
+  return false;
+}
+
+// Builds a compact behavioral summary from data already on the node/edges —
+// deliberately NOT the full raw transaction list, to keep token cost low and
+// because raw hex dumps give the model nothing structured to reason over.
+//
+// Two things this deliberately does that the first version didn't:
+//   1. Direction is computed from the edge's actual value fields, not from
+//      which side of the tuple this node sits on. Edge convention (matches
+//      upsertEdge / every other consumer in this file): outValue = a→b,
+//      inValue = b→a. The investigated node is stored as `a` on essentially
+//      every edge it originates, so splitting "inbound vs outbound" by tuple
+//      position instead of by outValue/inValue silently produced 0 inbound
+//      edges on wallets that plainly had inbound value — a bug, not a
+//      finding, and it's what the model was (correctly) calling out as an
+//      arithmetic inconsistency.
+//   2. Every counterparty with ANY investigator-established context —
+//      confirmed category (exchange/scam/contract/router), notes text, or a
+//      hit in the durable confirmedExchangesCache/KNOWN_BTC_EXCHANGES
+//      registries — is surfaced, not just ones tagged "exchange". A
+//      counterparty you've already written "Main phishing scam
+//      consolidator wallet." on is exactly the kind of fact that should
+//      reach the model; restricting to exchange-only tags was throwing
+//      away your own case work.
+function buildAiEvidenceSummary(node) {
+  const key = node.address.toLowerCase();
+  const edges = state.edges.filter(e => e.a.toLowerCase() === key || e.b.toLowerCase() === key);
+
+  let inboundTotal = 0, outboundTotal = 0, inboundEdgeCount = 0, outboundEdgeCount = 0, zeroValueEdgeCount = 0;
+  const perCounterparty = new Map(); // addr -> { out: number, in: number }
+  edges.forEach(e => {
+    const isA = e.a.toLowerCase() === key;
+    const cpAddr = (isA ? e.b : e.a);
+    const cpKey = cpAddr.toLowerCase();
+    const outFromThisNode = isA ? (e.outValue || 0) : (e.inValue || 0);  // this node → counterparty
+    const inToThisNode = isA ? (e.inValue || 0) : (e.outValue || 0);     // counterparty → this node
+    outboundTotal += outFromThisNode;
+    inboundTotal += inToThisNode;
+    if (outFromThisNode > 0) outboundEdgeCount++;
+    if (inToThisNode > 0) inboundEdgeCount++;
+    if (outFromThisNode === 0 && inToThisNode === 0) zeroValueEdgeCount++;
+    const cur = perCounterparty.get(cpKey) || { address: cpAddr, out: 0, in: 0 };
+    cur.out += outFromThisNode; cur.in += inToThisNode;
+    perCounterparty.set(cpKey, cur);
+  });
+  const totalFlow = outboundTotal || 1;
+  const topOutbound = [...perCounterparty.values()].sort((a, b) => b.out - a.out).slice(0, 5);
+  const topTargetConcentration = topOutbound.reduce((s, c) => s + c.out, 0) / totalFlow;
+
+  // Counts, for each of THIS wallet's counterparties, how many OTHER
+  // confirmed-scam wallets that counterparty is itself directly connected
+  // to. This is deliberately cheap (one extra hop, not a full graph walk) —
+  // the point isn't to reconstruct the whole network for every call, it's to
+  // stop the model from only ever seeing one wallet in total isolation. A
+  // counterparty that's directly wired into three other confirmed scam
+  // wallets is meaningfully different from one that's an isolated dead end,
+  // and that distinction was previously invisible no matter how it looked
+  // from this wallet alone.
+  const scamProximityCount = (addr) => {
+    const ak = addr.toLowerCase();
+    if (ak === key) return 0;
+    let count = 0;
+    state.edges.forEach(e2 => {
+      const a2 = e2.a.toLowerCase(), b2 = e2.b.toLowerCase();
+      if (a2 !== ak && b2 !== ak) return;
+      const other = a2 === ak ? b2 : a2;
+      if (other === key) return; // don't count the edge back to the wallet being analyzed
+      const otherNode = nodeIndex().get(other);
+      if (otherNode && otherNode.category === "scam") count++;
+    });
+    return count;
+  };
+
+  // Deterministic aggregate scam-exposure calculation — computed here in
+  // code, over EVERY counterparty (not just the top-12 in counterparty_context
+  // below), specifically so this number can never be something the model
+  // estimates, rounds, or misremembers from a wall of evidence text. Only
+  // counts counterparties that are HUMAN-confirmed scam (manualCategory:true)
+  // — the strictest evidentiary tier — because a number destined to support
+  // a "document this and refer it to law enforcement" recommendation should
+  // rest on the most solid tier of confirmation available, not an automated
+  // tag that hasn't been individually verified.
+  let valueToConfirmedScam = 0, valueFromConfirmedScam = 0, confirmedScamCounterpartyCount = 0;
+  perCounterparty.forEach((c) => {
+    const cpNode = nodeIndex().get(c.address.toLowerCase());
+    if (cpNode && cpNode.category === "scam" && cpNode.manualCategory) {
+      valueToConfirmedScam += c.out;
+      valueFromConfirmedScam += c.in;
+      confirmedScamCounterpartyCount++;
+    }
+  });
+  const aggregateScamExposure = {
+    confirmed_scam_counterparty_count: confirmedScamCounterpartyCount,
+    total_counterparty_count: perCounterparty.size,
+    outbound_value_to_confirmed_scam_wallets: Math.round(valueToConfirmedScam * 1e6) / 1e6,
+    inbound_value_from_confirmed_scam_wallets: Math.round(valueFromConfirmedScam * 1e6) / 1e6,
+    outbound_pct_to_confirmed_scam_wallets: outboundTotal > 0 ? Math.round((valueToConfirmedScam / outboundTotal) * 1000) / 10 : 0,
+    inbound_pct_from_confirmed_scam_wallets: inboundTotal > 0 ? Math.round((valueFromConfirmedScam / inboundTotal) * 1000) / 10 : 0,
+  };
+
+  // Cross-reference EVERY counterparty against: its own node record (category,
+  // notes, autoLabel), the durable confirmed-exchange registry, and
+  // KNOWN_BTC_EXCHANGES — a counterparty can be confirmed in the registry
+  // even if its own node was never individually scanned (exactly the
+  // "exchange I never scanned but it's in the known list" case).
+  const counterpartyContext = [...perCounterparty.values()]
+    .sort((a, b) => (b.out + b.in) - (a.out + a.in))
+    .slice(0, 12)
+    .map(c => {
+      const cpNode = nodeIndex().get(c.address.toLowerCase());
+      const registryLabel = confirmedExchangesCache[c.address.toLowerCase()]
+        || (chainKind(node.chain) === "btc" ? KNOWN_BTC_EXCHANGES[c.address.toLowerCase()] : null)
+        || null;
+      const entry = {
+        address: c.address,
+        sent_to_this_wallet: Math.round(c.in * 1e6) / 1e6,
+        received_from_this_wallet: Math.round(c.out * 1e6) / 1e6,
+      };
+      if (registryLabel) entry.confirmed_registry_label = registryLabel; // e.g. "Coinbase" — authoritative, investigator-confirmed
+      if (cpNode) {
+        if (cpNode.category && cpNode.category !== "unclassified") {
+          entry.investigator_classification = cpNode.category + (cpNode.manualCategory ? " (human-confirmed)" : " (automated)");
+        }
+        if (cpNode.autoLabel) entry.explorer_tag = cpNode.autoLabel;
+        if (cpNode.notes && cpNode.notes.trim()) entry.investigator_notes = cpNode.notes.trim().slice(0, 240);
+      }
+      const proximity = scamProximityCount(c.address);
+      if (proximity > 0) entry.also_directly_connected_to_N_other_confirmed_scam_wallets = proximity;
+      return entry;
+    });
+
+  return {
+    address: node.address,
+    chain: node.chain,
+    txCount: node.txCount || 0,
+    first_seen: node.firstSeen || null,
+    last_seen: node.lastSeen || null,
+    inbound_fully_scanned: !!node.inFetched,
+    outbound_fully_scanned: !!node.outFetched,
+    // This wallet's OWN investigator notes/classification, if any already exist —
+    // relevant both for a first-time look and for a deliberate re-audit of an
+    // already-confirmed wallet (see this_wallet_current_classification below).
+    this_wallet_investigator_notes: (node.notes && node.notes.trim()) ? node.notes.trim().slice(0, 400) : null,
+    // Present only when this wallet already carries a classification — used
+    // for the re-verification check (system prompt rule 10). null here means
+    // there is nothing to check against, i.e. a genuinely first-time look.
+    this_wallet_current_classification: (node.category && node.category !== "unclassified")
+      ? node.category + (node.manualCategory ? " (human-confirmed)" : " (automated)")
+      : null,
+    unique_counterparties: perCounterparty.size,
+    inbound_edge_count: inboundEdgeCount,
+    outbound_edge_count: outboundEdgeCount,
+    // Zero-value edges are NOT "no activity" — on an EVM chain these are
+    // typically contract deployments or contract-call transactions rather
+    // than value transfers, and a wallet whose edges are mostly zero-value
+    // is very plausibly an infrastructure/deployer wallet rather than a
+    // fund-flow participant. Surfaced explicitly so this doesn't just read
+    // as thin, ambiguous evidence.
+    zero_value_edge_count: zeroValueEdgeCount,
+    zero_value_edge_note: zeroValueEdgeCount >= Math.max(2, edges.length * 0.5)
+      ? "Most of this wallet's connections carry zero value — on an EVM chain this pattern typically indicates contract deployment or contract-call transactions rather than a fund-movement role. Interpret accordingly rather than reading this as weak/insufficient evidence."
+      : null,
+    inbound_total_value: Math.round(inboundTotal * 1e6) / 1e6,
+    outbound_total_value: Math.round(outboundTotal * 1e6) / 1e6,
+    isContract: !!node.isContract,
+    contractType: node.contractType || null,
+    outbound_concentration_top5_targets_pct: Math.round(topTargetConcentration * 1000) / 10,
+    aggregate_confirmed_scam_exposure: aggregateScamExposure,
+    counterparty_context: counterpartyContext,
+    existing_flags: node.flags && node.flags.autoScan ? node.flags.autoScan.reasons.map(r => r.text) : [],
+  };
+}
+
+// Runs the AI call for one node, validates the response, and stores it in
+// node.aiSuggestion — a field that nothing else in the app reads or writes,
+// so it can never leak into category/autoLabel/exhibit generation on its own.
+async function analyzeNodeWithAI(node) {
+  if (!aiIsConfigured()) { openAiSettingsModal(); return; }
+  // NOTE: no aiAlreadyConfirmed() gate here. That check still fully governs
+  // whether category/autoLabel/confirmedExchangesCache ever get written to —
+  // this function never touches those regardless. What it used to ALSO do
+  // was prevent the AI from ever being run on an already-confirmed wallet at
+  // all, which meant a wallet you'd mis-categorized in the past (it happens)
+  // could never get a second look. Confirmed wallets can still be analyzed,
+  // opt-in, same as any other — see rule 10 in AI_SYSTEM_PROMPT and
+  // this_wallet_current_classification in the evidence summary, which let
+  // the model flag "this doesn't match what's on record" instead of being
+  // blocked from looking in the first place.
+  upsertNode(node.address, node.chain, { aiSuggestion: { status: "loading" } });
+  renderAll();
+  try {
+    const summary = buildAiEvidenceSummary(node);
+    const res = await callAnthropicApi(aiSettingsCache.apiKey, aiSettingsCache.model, AI_SYSTEM_PROMPT, JSON.stringify(summary, null, 2));
+    const text = (res.content || []).find(b => b.type === "text")?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { throw new Error("Model did not return valid JSON — rejected."); }
+    const required = ["suggested_pattern", "confidence", "evidence", "alternate_explanation"];
+    const missing = required.filter(k => !(k in parsed));
+    if (missing.length) throw new Error("Response missing required field(s): " + missing.join(", ") + " — rejected.");
+    if (!Array.isArray(parsed.evidence) || parsed.evidence.length < 2) throw new Error("Fewer than 2 cited evidence points — rejected per evidentiary rule.");
+    // A re-verification flag with no stated reason is worse than useless —
+    // it'd read as "the AI has doubts" with nothing to actually check.
+    if (parsed.consistent_with_current_classification === false && !(parsed.reverification_reason && parsed.reverification_reason.trim())) {
+      throw new Error("Flagged for re-verification with no reverification_reason given — rejected.");
+    }
+    // Same discipline for the regulatory-referral flag — this is a serious
+    // recommendation (document and escalate to law enforcement/regulators),
+    // so it's rejected outright if it isn't accompanied by the specific
+    // numbers and framing rule 14 requires.
+    if (parsed.regulatory_referral_flag === true && !(parsed.regulatory_referral_note && parsed.regulatory_referral_note.trim())) {
+      throw new Error("Regulatory-referral flag set with no supporting note given — rejected.");
+    }
+
+    // Usage/cost tracking, persisted across sessions.
+    const inTok = res.usage?.input_tokens || 0, outTok = res.usage?.output_tokens || 0;
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + inTok;
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + outTok;
+    saveAiSettings();
+
+    upsertNode(node.address, node.chain, {
+      aiSuggestion: {
+        status: "ready",
+        pattern: parsed.suggested_pattern,
+        confidence: parsed.confidence,
+        evidence: parsed.evidence,
+        alternateExplanation: parsed.alternate_explanation,
+        reasoningNote: parsed.reasoning_note || "",
+        consistentWithCurrentClassification: (parsed.consistent_with_current_classification === true || parsed.consistent_with_current_classification === false) ? parsed.consistent_with_current_classification : null,
+        reverificationReason: parsed.reverification_reason || null,
+        followupQuestion: parsed.followup_question || null,
+        regulatoryReferralFlag: parsed.regulatory_referral_flag === true,
+        regulatoryReferralNote: parsed.regulatory_referral_note || null,
+        wasAuditOfConfirmed: aiAlreadyConfirmed(node), // for display framing only — never gates anything
+        model: aiSettingsCache.model,
+        timestamp: Date.now(),
+        reviewed: null, // null = unreviewed, "confirmed" | "rejected" once a human acts
+      },
+    });
+  } catch (err) {
+    upsertNode(node.address, node.chain, { aiSuggestion: { status: "error", message: String(err.message || err) } });
+  }
+  scheduleSave();
+  renderAll();
+}
+
+function aiReviewDecision(address, chain, decision) {
+  const node = nodeIndex().get(canonAddr(address));
+  if (!node || !node.aiSuggestion) return;
+  upsertNode(address, chain, { aiSuggestion: Object.assign({}, node.aiSuggestion, { reviewed: decision }) });
+  if (expandedAiAddr === canonAddr(address)) expandedAiAddr = null; // collapse — don't leave the reviewed card sitting open
+  scheduleSave();
+  renderAll();
+}
+
 // ---------- Slab-based persistence ----------
 // The old saveNetwork handed the ENTIRE state to one IndexedDB put. put()
 // structured-clones its value on the main thread, so every autosave deep-
@@ -4639,18 +5200,29 @@ function layoutHierarchical(nodes, edges) {
     if (adj[b]) adj[b].push(a);
   });
 
-  // Pick a single primary root — the flagged/investigated wallet with the
-  // most connections (most likely the actual hub, e.g. a consolidation
-  // wallet). Every other investigated wallet is still included, but at its
-  // real graph distance from that root, instead of being pinned to tier 0
-  // just because it was also directly traced.
-  const candidates = nodes.filter(n => n.investigated || n.category === "root");
+  // Root selection: an actual victim/origin wallet (theft-anchored, or
+  // explicitly categorized "victim") is who this exhibit should read FROM —
+  // that's the whole point of ordering it victim-to-exchange. Only fall back
+  // to "most-connected investigated wallet" (which is usually a consolidation
+  // hub, not the victim) when no victim wallet is present in this subgraph at
+  // all — e.g. a Flagged Only export that happens not to include the victim.
   const degreeOf = (addr) => (adj[addr] || []).length;
   let primaryRoot = null;
-  (candidates.length ? candidates : nodes).forEach(n => {
-    const addr = n.address.toLowerCase();
-    if (!primaryRoot || degreeOf(addr) > degreeOf(primaryRoot)) primaryRoot = addr;
-  });
+  const victimCandidates = nodes.filter(n => n.category === "victim" || (n.traceAnchor && (n.traceAnchor.amount > 0 || n.traceAnchor.date)));
+  if (victimCandidates.length) {
+    // Multiple anchored victims: prefer the one with the most connections,
+    // same tie-break as before, just scoped to actual victims first.
+    victimCandidates.forEach(n => {
+      const addr = n.address.toLowerCase();
+      if (!primaryRoot || degreeOf(addr) > degreeOf(primaryRoot)) primaryRoot = addr;
+    });
+  } else {
+    const candidates = nodes.filter(n => n.investigated || n.category === "root");
+    (candidates.length ? candidates : nodes).forEach(n => {
+      const addr = n.address.toLowerCase();
+      if (!primaryRoot || degreeOf(addr) > degreeOf(primaryRoot)) primaryRoot = addr;
+    });
+  }
 
   const tierOf = {};
   const queue = [];
@@ -4667,59 +5239,221 @@ function layoutHierarchical(nodes, edges) {
 
   const tiers = {};
   nodes.forEach(n => { const t = tierOf[n.address.toLowerCase()]; (tiers[t] = tiers[t] || []).push(n); });
+  const tierKeys = Object.keys(tiers).map(Number).sort((a, b) => a - b);
 
-  const BOX_W = 190, BOX_H = 64, H_GAP = 24, V_GAP = 110;
-  const positions = {};
-  let maxWidth = 0;
-  Object.keys(tiers).map(Number).sort((a,b)=>a-b).forEach(t => {
+  // Barycenter ordering pass: within each tier (after the first), sort nodes
+  // by the average vertical slot of their already-placed neighbors in the
+  // PREVIOUS tier. This is the standard Sugiyama-style heuristic for reducing
+  // edge crossings in a layered graph — without it, a wide flagged network
+  // renders as a wall of criss-crossing lines with no visual logic to how
+  // nodes within a tier happen to be ordered.
+  const slotOf = {};
+  tierKeys.forEach((t, ti) => {
     const row = tiers[t];
-    const rowWidth = row.length * (BOX_W + H_GAP) - H_GAP;
-    maxWidth = Math.max(maxWidth, rowWidth);
-    row.forEach((n, i) => {
+    if (ti === 0) {
+      row.forEach((n, i) => { slotOf[n.address.toLowerCase()] = i; });
+      return;
+    }
+    const scored = row.map(n => {
+      const addr = n.address.toLowerCase();
+      const neighborSlots = (adj[addr] || [])
+        .map(nb => slotOf[nb])
+        .filter(s => s !== undefined);
+      const avg = neighborSlots.length ? neighborSlots.reduce((s, v) => s + v, 0) / neighborSlots.length : 999999;
+      return { n, avg };
+    });
+    scored.sort((a, b) => a.avg - b.avg);
+    scored.forEach((s, i) => { slotOf[s.n.address.toLowerCase()] = i; });
+    tiers[t] = scored.map(s => s.n);
+  });
+
+  // Left-to-right: tier = horizontal position (victim at x=0, exchanges
+  // furthest right), per-tier index = vertical stacking. Wide/short boxes
+  // read naturally as "money moving left to right," matching how a custody
+  // chain is actually described in a filing.
+  const BOX_W = 210, BOX_H = 58, H_GAP = 70, V_GAP = 22;
+  const positions = {};
+  let maxRows = 0;
+  tierKeys.forEach(t => {
+    const col = tiers[t];
+    const colHeight = col.length * (BOX_H + V_GAP) - V_GAP;
+    maxRows = Math.max(maxRows, col.length);
+    col.forEach((n, i) => {
       positions[n.address.toLowerCase()] = {
-        x: i * (BOX_W + H_GAP) - rowWidth/2,
-        y: t * V_GAP,
+        x: t * (BOX_W + H_GAP),
+        y: i * (BOX_H + V_GAP) - colHeight / 2,
       };
     });
   });
-  const height = (maxTier + 1) * V_GAP + BOX_H + 40;
-  return { positions, width: maxWidth + BOX_W + 80, height, boxW: BOX_W, boxH: BOX_H };
+  const width = (maxTier + 1) * (BOX_W + H_GAP) - H_GAP + 80;
+  const height = maxRows * (BOX_H + V_GAP) + 80;
+  return { positions, width, height, boxW: BOX_W, boxH: BOX_H, tierOf, orientation: "horizontal" };
 }
 
 function renderFlowChartSVG(nodes, edges, layout) {
   const { positions, width, height, boxW, boxH } = layout;
-  const offsetX = width/2;
+  const offsetY = height / 2;
   const esc = (s) => escapeHtml(s);
 
   let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" font-family="Arial, Helvetica, sans-serif">`;
   svg += `<rect width="${width}" height="${height}" fill="#ffffff"/>`;
+  svg += `<defs>
+    <marker id="fcArrowConfirmed" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#2e7d32"/></marker>
+    <marker id="fcArrowUnconfirmed" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#999999"/></marker>
+  </defs>`;
 
+  // Curved connectors instead of straight lines, running left-to-right (right
+  // edge of the source box to left edge of the target box) so the whole
+  // diagram reads the way a custody chain is actually described: victim on
+  // the left, money flowing rightward, exchange endpoint(s) on the right.
+  // A horizontal S-curve keeps each edge visually distinct at a glance
+  // instead of the wall of straight diagonal lines the old top-down cascade
+  // produced, and the arrowhead marker gives direction without relying on
+  // color alone.
   edges.forEach(e => {
     const pa = positions[e.a.toLowerCase()], pb = positions[e.b.toLowerCase()];
     if (!pa || !pb) return;
-    const x1 = pa.x + offsetX + boxW/2, y1 = pa.y + boxH;
-    const x2 = pb.x + offsetX + boxW/2, y2 = pb.y;
+    const x1 = pa.x + boxW, y1 = pa.y + offsetY + boxH / 2;
+    const x2 = pb.x - 3, y2 = pb.y + offsetY + boxH / 2;
     const inV = e.inValue || 0, outV = e.outValue || 0;
     const confirmed = inV !== outV && (inV > 0 || outV > 0);
     const stroke = confirmed ? "#2e7d32" : "#999999";
     const dash = confirmed ? "" : ' stroke-dasharray="4,3"';
-    svg += `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${stroke}" stroke-width="1.5"${dash}/>`;
+    const marker = confirmed ? "fcArrowConfirmed" : "fcArrowUnconfirmed";
+    const midX = (x1 + x2) / 2;
+    svg += `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} C${midX.toFixed(1)},${y1.toFixed(1)} ${midX.toFixed(1)},${y2.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="1.5"${dash} marker-end="url(#${marker})"/>`;
   });
 
   nodes.forEach(n => {
     const pos = positions[n.address.toLowerCase()];
     if (!pos) return;
-    const x = pos.x + offsetX, y = pos.y;
+    const x = pos.x, y = pos.y + offsetY;
     const meta = CATEGORY_META[n.category] || CATEGORY_META.unclassified;
     const line1 = short(n.address);
-    const line2 = n.autoLabel || meta.label;
+    const line2 = exchangeIdentity(n, n.address) || n.autoLabel || meta.label;
     const line3 = n.flags && n.flags.autoScan ? `Bulk scan score ${n.flags.autoScan.score}`
                 : n.behaviorLabel ? n.behaviorLabel.label
                 : `${n.txCount || 0} tx`;
     svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${boxW}" height="${boxH}" rx="8" fill="${meta.color}22" stroke="${meta.color}" stroke-width="1.5"/>`;
-    svg += `<text x="${(x+boxW/2).toFixed(1)}" y="${(y+20).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="bold" fill="#1a1a1a">${esc(line1)}</text>`;
-    svg += `<text x="${(x+boxW/2).toFixed(1)}" y="${(y+37).toFixed(1)}" text-anchor="middle" font-size="10" fill="#333333">${esc(line2.length > 26 ? line2.slice(0,24)+"…" : line2)}</text>`;
-    svg += `<text x="${(x+boxW/2).toFixed(1)}" y="${(y+53).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#666666">${esc(line3)}</text>`;
+    svg += `<text x="${(x+boxW/2).toFixed(1)}" y="${(y+19).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="bold" fill="#1a1a1a">${esc(line1)}</text>`;
+    svg += `<text x="${(x+boxW/2).toFixed(1)}" y="${(y+34).toFixed(1)}" text-anchor="middle" font-size="10" fill="#333333">${esc(line2.length > 28 ? line2.slice(0,26)+"…" : line2)}</text>`;
+    svg += `<text x="${(x+boxW/2).toFixed(1)}" y="${(y+48).toFixed(1)}" text-anchor="middle" font-size="9.5" fill="#666666">${esc(line3)}</text>`;
+  });
+
+  svg += `</svg>`;
+  return svg;
+}
+
+// ---------- Custody-path visual diagram (boxes + arrows) ----------
+// Purpose-built for generatePathExhibit(), as opposed to layoutHierarchical()/
+// renderFlowChartSVG() above, which are built for an arbitrary flagged
+// subgraph and pick a root by connection count — the wrong approach for a
+// custody TRAIL, which has a specific, known shape: linear origin→split,
+// branches fanning out, convergence on a hub, then one or more parallel
+// routes onward to exchange endpoint(s). This lays out exactly that shape,
+// top to bottom, instead of running a generic graph layout over it.
+function computeCustodyDiagramLayout(path, splitInfo, splitRoutes, nodeByKey) {
+  const boxes = []; // {key, address, row, col, role, isExchange, exchangeName}
+  const lines = [];  // {from, to}
+  const keyOf = (a) => String(a).toLowerCase();
+  const pushBox = (address, role, col, row, extra) => {
+    const k = keyOf(address);
+    boxes.push(Object.assign({ key: k, address, role, col, row }, extra || {}));
+    return k;
+  };
+
+  let splitIdx = -1;
+  if (splitInfo) splitIdx = path.findIndex(h => keyOf(h.address) === keyOf(splitInfo.splitFrom));
+  const linearEnd = splitIdx >= 0 ? splitIdx : path.length - 1;
+
+  let row = 0, prevKey = null;
+  for (let i = 0; i <= linearEnd; i++) {
+    const addr = path[i].address;
+    const role = i === 0 ? "ORIGIN" : (i === linearEnd && splitIdx >= 0 ? "SPLIT POINT" : `Hop ${i}`);
+    const k = pushBox(addr, role, 0, row);
+    if (prevKey) lines.push({ from: prevKey, to: k });
+    prevKey = k; row++;
+  }
+
+  if (splitInfo) {
+    const nB = splitInfo.branches.length;
+    const branchKeys = splitInfo.branches.map((b, i) => {
+      const col = i - (nB - 1) / 2;
+      const k = pushBox(b.address, `Split ${i + 1}`, col, row);
+      lines.push({ from: prevKey, to: k });
+      return k;
+    });
+    row++;
+    const hubKey = pushBox(splitInfo.hubAddr, "Consolidation hub", 0, row);
+    branchKeys.forEach(bk => lines.push({ from: bk, to: hubKey }));
+    row++;
+
+    if (splitRoutes && splitRoutes.length) {
+      const nR = splitRoutes.length;
+      splitRoutes.forEach((rt, ri) => {
+        const col = ri - (nR - 1) / 2;
+        let localPrev = hubKey, localRow = row;
+        (rt.route || []).forEach(h => {
+          const hn = nodeByKey(keyOf(h.address)) || {};
+          const exName = exchangeIdentity(hn, h.address);
+          const isFeeder = rt.feeder && keyOf(h.address) === keyOf(rt.feeder);
+          const role = exName ? "EXCHANGE" : (isFeeder ? "Feeds exchange" : "Relay");
+          const k = pushBox(h.address, role, col, localRow, exName ? { isExchange: true, exchangeName: exName } : {});
+          lines.push({ from: localPrev, to: k });
+          localPrev = k; localRow++;
+        });
+      });
+    }
+  } else {
+    const lastBox = boxes[boxes.length - 1];
+    if (lastBox) {
+      const n = nodeByKey(lastBox.key) || {};
+      const exName = exchangeIdentity(n, lastBox.address);
+      if (exName) { lastBox.role = "EXCHANGE"; lastBox.isExchange = true; lastBox.exchangeName = exName; }
+      else lastBox.role = "ENDPOINT";
+    }
+  }
+  return { boxes, lines };
+}
+
+function renderCustodyDiagramSVG(layout, nodeByKey) {
+  const BOX_W = 190, BOX_H = 60, H_GAP = 30, V_GAP = 70;
+  const cols = layout.boxes.map(b => b.col);
+  const rows = layout.boxes.map(b => b.row);
+  const minCol = Math.min(...cols), maxCol = Math.max(...cols), maxRow = Math.max(...rows);
+  const width = (maxCol - minCol + 1) * (BOX_W + H_GAP) - H_GAP + 60;
+  const height = (maxRow + 1) * (V_GAP + BOX_H) + 30;
+  const offsetX = width / 2;
+
+  const posOf = {};
+  layout.boxes.forEach(b => {
+    posOf[b.key] = { x: offsetX + b.col * (BOX_W + H_GAP) - BOX_W / 2, y: 15 + b.row * (V_GAP + BOX_H) };
+  });
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" font-family="Arial, Helvetica, sans-serif">`;
+  svg += `<rect width="${width}" height="${height}" fill="#ffffff"/>`;
+  svg += `<defs><marker id="cpArrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#8a8a8a"/></marker></defs>`;
+
+  layout.lines.forEach(ln => {
+    const pa = posOf[ln.from], pb = posOf[ln.to];
+    if (!pa || !pb) return;
+    const x1 = pa.x + BOX_W / 2, y1 = pa.y + BOX_H;
+    const x2 = pb.x + BOX_W / 2, y2 = pb.y - 4;
+    const midY = (y1 + y2) / 2;
+    svg += `<path d="M${x1.toFixed(1)},${y1.toFixed(1)} C${x1.toFixed(1)},${midY.toFixed(1)} ${x2.toFixed(1)},${midY.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}" fill="none" stroke="#8a8a8a" stroke-width="1.6" marker-end="url(#cpArrow)"/>`;
+  });
+
+  layout.boxes.forEach(b => {
+    const pos = posOf[b.key];
+    const n = nodeByKey(b.key) || {};
+    const meta = CATEGORY_META[n.category] || CATEGORY_META.unclassified;
+    const stroke = b.isExchange ? "#1a7a1a" : (b.role === "ORIGIN" ? "#a13d2c" : meta.color);
+    const fill = b.isExchange ? "#1a7a1a15" : (b.role === "ORIGIN" ? "#a13d2c15" : `${meta.color}18`);
+    svg += `<rect x="${pos.x.toFixed(1)}" y="${pos.y.toFixed(1)}" width="${BOX_W}" height="${BOX_H}" rx="8" fill="${fill}" stroke="${stroke}" stroke-width="2"/>`;
+    svg += `<text x="${(pos.x+BOX_W/2).toFixed(1)}" y="${(pos.y+16).toFixed(1)}" text-anchor="middle" font-size="9.5" font-weight="bold" fill="${stroke}" letter-spacing="0.6">${escapeHtml((b.role||"").toUpperCase())}</text>`;
+    svg += `<text x="${(pos.x+BOX_W/2).toFixed(1)}" y="${(pos.y+33).toFixed(1)}" text-anchor="middle" font-size="12" font-weight="bold" fill="#1a1a1a">${escapeHtml(short(b.address))}</text>`;
+    const tag = b.exchangeName || n.autoLabel || meta.label;
+    svg += `<text x="${(pos.x+BOX_W/2).toFixed(1)}" y="${(pos.y+49).toFixed(1)}" text-anchor="middle" font-size="10" fill="#555555">${escapeHtml((tag||"").length > 28 ? tag.slice(0,26)+"…" : (tag||""))}</text>`;
   });
 
   svg += `</svg>`;
@@ -5565,7 +6299,7 @@ function generatePathExhibit(startAddr, endAddr, amountStr) {
     const catLabel = (CATEGORY_META[n.category] || CATEGORY_META.unclassified).label;
     const chainKey = n.chain || state.chainKey;
     const chainLabel = (CHAINS[chainKey] || {}).label || chainKey;
-    const tag = n.autoLabel ? ` &middot; tagged “${escapeHtml(n.autoLabel)}”` : "";
+    const tag = (exchangeIdentity(n, hop.address) || n.autoLabel) ? ` &middot; tagged “${escapeHtml(exchangeIdentity(n, hop.address) || n.autoLabel)}”` : "";
     const cpCount = state.edges.reduce((c,e)=>{const a=e.a.toLowerCase(),b=e.b.toLowerCase();const kk=hop.address.toLowerCase();return c+((a===kk||b===kk)?1:0);},0);
     const hubFlag = (i>0 && i<path.length-1 && cpCount>=400) ? ' &middot; <span style="color:#b8860b;">high-traffic hub — funds commingled here; this hop is corroborated by direction, not exclusivity</span>' : '';
     const behavior = (n.behaviorLabel ? ` &middot; ${escapeHtml(n.behaviorLabel.label)}` : "") + hubFlag;
@@ -5865,6 +6599,21 @@ function generatePathExhibit(startAddr, endAddr, amountStr) {
     }
   }
 
+  // Visual flow diagram — boxes + arrows, at a glance before the detailed
+  // step-by-step narrative below. Wrapped defensively: a diagram layout bug
+  // should never take down the whole exhibit when the narrative underneath
+  // it is the part that actually carries the evidentiary weight.
+  let diagramHtml = "";
+  try {
+    const diagLayout = computeCustodyDiagramLayout(path, splitInfo, splitRoutes, nodeByKey);
+    const diagSvg = renderCustodyDiagramSVG(diagLayout, nodeByKey);
+    diagramHtml = `
+  <div style="margin:20px 0 28px; overflow-x:auto; border:1px solid #ddd; border-radius:6px; padding:14px; background:#fafafa;">
+    <div class="role" style="margin-bottom:8px; color:#555;">Visual flow diagram</div>
+    ${diagSvg}
+  </div>`;
+  } catch (e) { /* fall back to narrative-only exhibit below */ }
+
   const doc = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="color-scheme" content="only light">
@@ -5908,6 +6657,7 @@ function generatePathExhibit(startAddr, endAddr, amountStr) {
     Each address is independently verifiable at the linked block explorer. This is investigative work product, not a legal determination.${path.some(h => chainKind((nodeByKey(h.address.toLowerCase())||{}).chain || state.chainKey) === "btc") ? `
     Bitcoin hops: BTC is a UTXO chain — per-address transfer values are derived by proportional attribution across each transaction's inputs and outputs (exact for one-to-many and many-to-one transactions; an approximation for many-to-many). Cited transaction IDs are exact and independently verifiable.` : ""}
   </div>
+  ${diagramHtml}
   ${steps}
   ${splitsSection}
   <div class="concl"><b>Conclusion.</b> ${conclusion}</div>
@@ -5946,7 +6696,7 @@ function generatePathExhibit(startAddr, endAddr, amountStr) {
 
 function generateExhibit(flaggedOnly) {
   const generated = new Date().toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" });
-  let nodesForReport, diagramHtml, scopeNote;
+  let nodesForReport, diagramHtml, scopeNote, tierOf = {};
 
   if (flaggedOnly) {
     const { nodes: flaggedNodes, edges: flaggedEdges } = computeFlaggedSubgraph();
@@ -5954,24 +6704,50 @@ function generateExhibit(flaggedOnly) {
     const layout = layoutHierarchical(flaggedNodes, flaggedEdges);
     diagramHtml = renderFlowChartSVG(flaggedNodes, flaggedEdges, layout);
     nodesForReport = flaggedNodes;
-    scopeNote = `${flaggedNodes.length} flagged wallet(s) shown — Suspected Scam, bulk-scan hits, and root/investigated wallets only. Solid green lines = confirmed direction; dashed grey = connection confirmed, direction not yet established.`;
+    tierOf = layout.tierOf || {};
+    scopeNote = `${flaggedNodes.length} flagged wallet(s) shown — Suspected Scam, bulk-scan hits, and root/investigated wallets only. Solid green lines = confirmed direction, with an arrowhead showing which way the value moved; dashed grey = connection confirmed, direction not yet established. Table below is ordered by custody distance from the origin/victim wallet, ending with any confirmed exchange(s).`;
   } else {
-    if (!graphCanvasRef) { showError("Graph isn't ready yet — trace or scan at least one wallet first."); return; }
-    const { nodes: visibleNodes } = computeVisibleGraph();
-    const imgData = graphCanvasRef.toDataURL("image/png");
-    diagramHtml = `<img src="${imgData}" alt="Network graph snapshot">`;
+    const { nodes: visibleNodes, edges: visibleEdges } = computeVisibleGraph();
+    if (visibleNodes.length === 0) { showError("Graph isn't ready yet — trace or scan at least one wallet first."); return; }
+    // A live canvas screenshot captures whatever happened to be on screen —
+    // current zoom/pan, the background watermark, an in-progress selection
+    // ring — none of which belongs in an evidentiary export. A generated SVG
+    // diagram is deterministic and always clean, same as Flagged Only.
+    if (visibleNodes.length > 300) {
+      showError(`This network has ${visibleNodes.length} visible wallets — too many to lay out as a readable diagram. Try "Generate Exhibit — Flagged Only" instead, or narrow the map with the tx-count / value filters first.`);
+      return;
+    }
+    const layout = layoutHierarchical(visibleNodes, visibleEdges);
+    diagramHtml = renderFlowChartSVG(visibleNodes, visibleEdges, layout);
     nodesForReport = visibleNodes;
-    scopeNote = `${visibleNodes.length} wallet(s) shown (display filter: &ge; ${state.minTxFilter} tx, plus all root/investigated wallets). Full mode — large networks may be slow to open on mobile; try Flagged Only if this doesn't load.`;
+    tierOf = layout.tierOf || {};
+    scopeNote = `${visibleNodes.length} wallet(s) shown (display filter: &ge; ${state.minTxFilter} tx, plus all root/investigated wallets). Table below is ordered by custody distance from the origin/victim wallet, ending with any confirmed exchange(s). Try Flagged Only for a smaller, more focused exhibit.`;
   }
+
+  // Chain-of-custody ordering: origin/victim first, progressing outward hop
+  // by hop, with any confirmed exchange(s) always sorted to the very end
+  // regardless of graph tier — matching how a reviewer actually reads a fund
+  // trail, victim to exit, rather than whatever order the data happened to
+  // load in.
+  nodesForReport = nodesForReport.slice().sort((a, b) => {
+    const aEx = a.category === "exchange" ? 1 : 0;
+    const bEx = b.category === "exchange" ? 1 : 0;
+    if (aEx !== bEx) return aEx - bEx;
+    const at = tierOf[a.address.toLowerCase()]; const bt = tierOf[b.address.toLowerCase()];
+    return (at === undefined ? 9999 : at) - (bt === undefined ? 9999 : bt);
+  });
 
   const rows = nodesForReport.map(n => {
     const edgeCount = state.edges.filter(e => e.a.toLowerCase() === n.address.toLowerCase() || e.b.toLowerCase() === n.address.toLowerCase()).length;
     const catLabel = (CATEGORY_META[n.category] || CATEGORY_META.unclassified).label;
-    const tag = n.autoLabel || "—";
+    const tag = exchangeIdentity(n, n.address) || n.autoLabel || "—";
     const contract = n.tagChecked ? (n.isContract ? (n.contractType || "Smart contract") : "Regular wallet") : "—";
     const behavior = n.behaviorLabel ? n.behaviorLabel.label : "—";
     const autoScan = n.flags && n.flags.autoScan ? `Score ${n.flags.autoScan.score}` : "—";
+    const hop = tierOf[n.address.toLowerCase()];
+    const hopLabel = hop === 0 ? "Origin" : (hop === undefined ? "—" : `Hop ${hop}`);
     return `<tr>
+      <td style="text-align:center; font-weight:bold; color:${n.category === "exchange" ? "#1a7a1a" : "#555"};">${escapeHtml(hopLabel)}</td>
       <td class="mono">${escapeHtml(displayAddr(n.address))}</td>
       <td>${escapeHtml(catLabel)}</td>
       <td>${escapeHtml(tag)}</td>
@@ -6005,7 +6781,7 @@ function generateExhibit(flaggedOnly) {
   <div class="diagram-wrap">${diagramHtml}</div>
   <table>
     <thead><tr>
-      <th>Address</th><th>Category</th><th>Explorer Tag</th><th>Contract Type</th><th>Behavior Pattern</th><th>Bulk Scan</th><th>Connections</th><th>Notes</th>
+      <th>Hop</th><th>Address</th><th>Category</th><th>Explorer Tag</th><th>Contract Type</th><th>Behavior Pattern</th><th>Bulk Scan</th><th>Connections</th><th>Notes</th>
     </tr></thead>
     <tbody>${rows}</tbody>
   </table>
@@ -8599,6 +9375,11 @@ function renderTopLabels() {
 // scope so it survives panel re-renders; selecting a different wallet leaves
 // it stale-but-harmless (that wallet simply renders collapsed by default).
 let expandedFlagsAddr = null;
+// Tracks which wallet's AI card is manually expanded AFTER it's been
+// reviewed (confirmed/rejected). Reviewed cards default to a collapsed
+// one-line summary — see the AI suggestion rendering below — so confirming
+// or rejecting doesn't leave a wall of evidence text sitting in the panel.
+let expandedAiAddr = null;
 function renderSidePanel() {
   const selectedNode = nodeIndex().get((state.selectedAddress||"").toLowerCase());
   const panel = document.getElementById("sidePanel");
@@ -8614,6 +9395,96 @@ function renderSidePanel() {
           ? `<p class="card-hint" style="color:#5c9ab0;">⚙ ${escapeHtml(selectedNode.contractType || "Smart contract")}</p>`
           : `<p class="card-hint" style="color:#64718a;">Regular wallet (not a contract).</p>`)
       : "");
+    // AI suggestion card. Never auto-run (costs the user real money). An
+    // already-confirmed wallet is no longer fully hidden from this — see the
+    // "audit" framing below — but the AI still cannot write to category/
+    // autoLabel itself either way; only a human clicking the existing
+    // category dropdown or Mark-as-exchange/contract buttons does that.
+    const aiSug = selectedNode.aiSuggestion;
+    const isConfirmedWallet = aiAlreadyConfirmed(selectedNode);
+    let aiSuggestionHtml = "";
+    if (!aiIsConfigured()) {
+      aiSuggestionHtml = `<div class="ai-card"><span class="ai-badge unverified">AI Analysis</span><p class="flag-text" style="margin-top:4px;">Add your own Anthropic API key to get an evidence-cited pattern suggestion for this wallet. <button class="small" id="aiOpenSettingsBtn" style="margin-left:4px; padding:2px 8px; font-size:11px;">Set up →</button></p></div>`;
+    } else if (!aiSug || aiSug.status === "error") {
+      const errNote = aiSug && aiSug.status === "error" ? `<p class="flag-text" style="color:#e08a7a; margin-top:4px;">Last attempt was rejected: ${escapeHtml(aiSug.message || "")}</p>` : "";
+      aiSuggestionHtml = isConfirmedWallet
+        ? `<div class="ai-card"><span class="ai-badge unverified">AI Analysis</span><p class="flag-text" style="margin-top:4px;">This wallet is already marked <strong>${escapeHtml((CATEGORY_META[selectedNode.category]||CATEGORY_META.unclassified).label)}</strong>. You can still run an independent AI second opinion — useful if you suspect an earlier classification call was wrong. It will never change the category itself; it can only flag a reason to double-check.</p>${errNote}<button class="small" id="aiAnalyzeBtn" style="margin-top:6px; border-color:#4f9dff; color:#7fb4ff;">Run AI second opinion →</button></div>`
+        : `<div class="ai-card"><span class="ai-badge unverified">AI Analysis — not yet run</span><p class="flag-text" style="margin-top:4px;">Ask your own AI model for an evidence-cited pattern suggestion (costs a small amount of your own API usage; you'll see the token cost after).</p>${errNote}<button class="small" id="aiAnalyzeBtn" style="margin-top:6px; border-color:#4f9dff; color:#7fb4ff;">Analyze with AI →</button></div>`;
+    } else if (aiSug.status === "loading") {
+      aiSuggestionHtml = `<div class="ai-card ai-card-loading"><span class="ai-badge unverified">🤖 AI Analysis running…</span><p class="flag-text" style="margin-top:4px; color:var(--text-3);">Calling your Anthropic API key — this usually takes a few seconds.</p></div>`;
+    } else if (aiSug.status === "ready") {
+      const nodeKeyLower = selectedNode.address.toLowerCase();
+      const isExpanded = expandedAiAddr === nodeKeyLower;
+      const confClass = "conf-" + (aiSug.confidence || "low");
+      const isConflict = aiSug.consistentWithCurrentClassification === false;
+      const isConsistent = aiSug.consistentWithCurrentClassification === true;
+      const reviewedClass = aiSug.reviewed === "confirmed" ? "ai-reviewed-confirm" : (aiSug.reviewed === "rejected" ? "ai-reviewed-reject" : (isConflict ? "ai-card-conflict" : ""));
+      if (aiSug.reviewed && !isExpanded) {
+        // Collapsed summary — the whole point is that after you act on this,
+        // it gets out of the way instead of sitting open as a wall of text.
+        const summaryBadge = aiSug.reviewed === "confirmed"
+          ? `<span class="ai-badge confirmed">${isConflict ? "Flagged for re-check" : "Human-confirmed"}</span>`
+          : `<span class="ai-badge rejected">${isConflict ? "Reviewed — original stands" : "Rejected"}</span>`;
+        aiSuggestionHtml = `
+          <div class="ai-card ${reviewedClass} ai-card-collapsed" id="aiCollapsedSummary">
+            <span class="ai-badge unverified" style="margin:0;">AI Suggestion</span>
+            ${summaryBadge}
+            <span class="flag-text" style="margin:0; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(aiSug.pattern || "")}</span>
+            <span class="flag-text" style="margin:0; color:var(--text-3); font-size:11px;">Show details ▾</span>
+          </div>`;
+      } else {
+        const reviewBadge = aiSug.reviewed === "confirmed" ? `<span class="ai-badge confirmed">${isConflict ? "Flagged for re-check" : "Human-confirmed"}</span>`
+          : aiSug.reviewed === "rejected" ? `<span class="ai-badge rejected">${isConflict ? "Reviewed — original stands" : "Rejected by reviewer"}</span>` : "";
+        const conflictBanner = (isConflict && !aiSug.reviewed) ? `
+          <div style="border:1px solid #e0b04a; background:rgba(230,168,48,0.1); border-radius:6px; padding:8px 10px; margin-bottom:8px;">
+            <span class="ai-badge" style="background:rgba(230,168,48,0.2); color:#e0b04a;">⚠ RECOMMEND RE-VERIFICATION</span>
+            <p class="flag-text" style="margin-top:6px;">Independent AI read of this wallet's own evidence doesn't clearly match its current <strong>${escapeHtml((CATEGORY_META[selectedNode.category]||CATEGORY_META.unclassified).label)}</strong> classification: ${linkifyAiText(aiSug.reverificationReason || "", selectedNode.chain)}</p>
+          </div>` : "";
+        const consistentNote = (isConsistent && !aiSug.reviewed)
+          ? `<p class="flag-text" style="color:#5fd98a; margin-top:4px;">✓ Independent AI read is consistent with the existing classification — no action needed.</p>` : "";
+        const followupHtml = aiSug.followupQuestion ? `
+          <div style="border:1px solid #4f9dff; background:rgba(79,157,255,0.08); border-radius:6px; padding:8px 10px; margin-top:8px;">
+            <span class="ai-badge" style="background:rgba(79,157,255,0.2); color:#7fb4ff;">🔍 WORTH CHECKING</span>
+            <p class="flag-text" style="margin-top:6px;">${linkifyAiText(aiSug.followupQuestion, selectedNode.chain)}</p>
+          </div>` : "";
+        // Deliberately distinct from every other banner in this card — deep
+        // red, explicit "not a verdict" framing baked into the label itself,
+        // since this is the highest-stakes thing the AI module can surface.
+        // Backed by aggregate_confirmed_scam_exposure, a number YOUR code
+        // computed deterministically — the model only decided whether that
+        // hard number crossed a threshold worth this framing.
+        const referralHtml = aiSug.regulatoryReferralFlag ? `
+          <div style="border:2px solid #c0392b; background:rgba(192,57,43,0.1); border-radius:6px; padding:8px 10px; margin-top:8px;">
+            <span class="ai-badge" style="background:rgba(192,57,43,0.2); color:#e08a7a;">📋 DOCUMENT &amp; CONSIDER REGULATORY / LAW ENFORCEMENT REFERRAL — NOT A VERDICT</span>
+            <p class="flag-text" style="margin-top:6px;">${linkifyAiText(aiSug.regulatoryReferralNote || "", selectedNode.chain)}</p>
+          </div>` : "";
+        const reviewButtons = aiSug.reviewed ? `<button class="small" id="aiCollapseBtn" style="margin-top:8px; font-size:10.5px; padding:3px 8px;">Collapse ▴</button>` : (isConflict ? `
+          <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <button class="small" id="aiConfirmBtn" style="border-color:#e0b04a; color:#e0b04a;">✓ Flag for re-check</button>
+            <button class="small" id="aiRejectBtn" style="border-color:#2f9e5c; color:#5fd98a;">I've reverified — classification stands</button>
+          </div>` : `
+          <div style="display:flex; gap:8px; margin-top:8px;">
+            <button class="small" id="aiConfirmBtn" style="border-color:#2f9e5c; color:#5fd98a;">✓ Confirm — I've independently verified this</button>
+            <button class="small" id="aiRejectBtn" style="border-color:#a13d2c; color:#e08a7a;">✗ Reject</button>
+          </div>`);
+        aiSuggestionHtml = `
+          <div class="ai-card ${reviewedClass}">
+            ${conflictBanner}
+            <span class="ai-badge unverified">AI Suggestion</span>
+            <span class="ai-badge ${confClass}">${escapeHtml((aiSug.confidence || "").toUpperCase())} CONFIDENCE</span>
+            ${reviewBadge}
+            <p class="flag-text" style="margin-top:6px;"><strong>${escapeHtml(aiSug.pattern || "")}</strong></p>
+            <ul class="ai-evidence">${(aiSug.evidence || []).map(e => `<li>${linkifyAiText(e, selectedNode.chain)}</li>`).join("")}</ul>
+            <p class="flag-text" style="color:var(--text-3);"><strong>Alternate explanation:</strong> ${linkifyAiText(aiSug.alternateExplanation || "", selectedNode.chain)}</p>
+            ${aiSug.reasoningNote ? `<p class="flag-text" style="color:var(--text-3); font-size:11.5px;">${linkifyAiText(aiSug.reasoningNote, selectedNode.chain)}</p>` : ""}
+            ${followupHtml}
+            ${referralHtml}
+            ${consistentNote}
+            ${reviewButtons}
+            ${!aiSug.reviewed ? `<button class="small" id="aiRerunBtn" style="margin-top:6px; font-size:10.5px; padding:3px 8px;">Re-run analysis</button>` : ""}
+          </div>`;
+      }
+    }
     const behaviorLine = (selectedNode.investigated && selectedNode.behaviorLabel)
       ? `<div class="flag" style="border-left-color:#3aa596; background:rgba(58,165,150,0.08);"><div class="flag-stamp" style="color:#6fc7ba;">BEHAVIOR PATTERN: ${escapeHtml(selectedNode.behaviorLabel.label)}</div><p class="flag-text">${escapeHtml(selectedNode.behaviorLabel.detail)}</p></div>`
       : "";
@@ -8765,6 +9636,7 @@ function renderSidePanel() {
         <p class="card-hint addr-full">${displayAddr(selectedNode.address)}</p>
         ${tagLine}
         ${contractLine}
+        ${aiSuggestionHtml}
         <label>Category</label>
         <div class="custom-select gold-ring" id="categoryDropdown">
           <button type="button" class="custom-select-btn" id="categoryDropdownBtn">
@@ -8814,6 +9686,24 @@ function renderSidePanel() {
     document.getElementById("notesArea").addEventListener("input", (e) => setNotes(selectedNode.address, e.target.value));
     const traceBtn = document.getElementById("traceBtn");
     if (traceBtn) traceBtn.addEventListener("click", () => traceWallet(selectedNode.address, selectedNode.chain));
+    { const b = document.getElementById("aiOpenSettingsBtn"); if (b) b.addEventListener("click", openAiSettingsModal); }
+    { const b = document.getElementById("aiAnalyzeBtn"); if (b) b.addEventListener("click", () => analyzeNodeWithAI(selectedNode)); }
+    { const b = document.getElementById("aiRerunBtn"); if (b) b.addEventListener("click", () => analyzeNodeWithAI(selectedNode)); }
+    { const b = document.getElementById("aiConfirmBtn"); if (b) b.addEventListener("click", () => aiReviewDecision(selectedNode.address, selectedNode.chain, "confirmed")); }
+    { const b = document.getElementById("aiRejectBtn"); if (b) b.addEventListener("click", () => aiReviewDecision(selectedNode.address, selectedNode.chain, "rejected")); }
+    { const b = document.getElementById("aiCollapsedSummary"); if (b) b.addEventListener("click", () => { expandedAiAddr = selectedNode.address.toLowerCase(); renderAll(); }); }
+    { const b = document.getElementById("aiCollapseBtn"); if (b) b.addEventListener("click", () => { expandedAiAddr = null; renderAll(); }); }
+    document.querySelectorAll(".ai-copy-addr-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        const addr = btn.getAttribute("data-addr");
+        const done = () => { const orig = btn.textContent; btn.textContent = "✓"; setTimeout(() => { btn.textContent = orig; }, 1200); };
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(addr).then(done, () => fallbackCopy(addr, done));
+          else fallbackCopy(addr, done);
+        } catch (err) { fallbackCopy(addr, done); }
+      });
+    });
     // Theft anchor persistence. Two defects lived here:
     //   1. The saved anchor was written ONLY when it was non-empty
     //      (`if (anchor) upsertNode(...)`), so clearing all three fields could
@@ -10015,41 +10905,48 @@ function initGraph2D() {
         const t = performance.now();
         const pulse = 1 + 0.42 * Math.sin(t / 160);      // stronger, quicker pulse
         const CY = "232,193,74"; // shell amber sonar (not used by any category)
+        // Every offset below is divided by uiZoom, not the raw zoom — at low
+        // zoom (zoomed far out, e.g. after a pinch-to-zoom-out), dividing by
+        // the raw zoom let this whole indicator balloon into an oversized
+        // ring/crosshair that could dwarf the node it's meant to highlight.
+        // Floors zoom at 0.55 for this calculation only, so the indicator's
+        // on-screen size stays reasonable no matter how far out the camera is.
+        const uiZoom = Math.max(zoom, 0.55);
 
         // Expanding sonar pings: THREE rings on a shared clock, fading as they
         // grow — a rippling "ping" that's impossible to miss in a dense field.
         for (let s = 0; s < 3; s++) {
           const phase = ((t / 620) + s / 3) % 1;          // 0..1, faster cadence
-          const ringR = r + (7 + phase * 70) / zoom;      // grow further out
+          const ringR = r + (7 + phase * 70) / uiZoom;    // grow further out
           const alpha = (1 - phase) * (1 - phase) * 0.95; // ease-out fade
           ctx.beginPath();
           ctx.arc(sp.x, sp.y, ringR, 0, Math.PI * 2);
           ctx.strokeStyle = `rgba(${CY},${alpha.toFixed(3)})`;
-          ctx.lineWidth = 4 / zoom;
+          ctx.lineWidth = 4 / uiZoom;
           ctx.stroke();
         }
         // Soft outer glow: wide, faint cyan halo hugging the bubble.
         ctx.beginPath();
-        ctx.arc(sp.x, sp.y, r + (11 / zoom) * pulse, 0, Math.PI * 2);
+        ctx.arc(sp.x, sp.y, r + (11 / uiZoom) * pulse, 0, Math.PI * 2);
         ctx.strokeStyle = `rgba(${CY},0.32)`;
-        ctx.lineWidth = 15 / zoom;
+        ctx.lineWidth = 15 / uiZoom;
         ctx.stroke();
         // Bright solid core ring, pulsing.
         ctx.beginPath();
-        ctx.arc(sp.x, sp.y, r + (6 / zoom) * pulse, 0, Math.PI * 2);
+        ctx.arc(sp.x, sp.y, r + (6 / uiZoom) * pulse, 0, Math.PI * 2);
         ctx.strokeStyle = `rgb(${CY})`;
-        ctx.lineWidth = 5 / zoom;
+        ctx.lineWidth = 5 / uiZoom;
         ctx.stroke();
         // Thin white inner ring for contrast against light-colored bubbles.
         ctx.beginPath();
-        ctx.arc(sp.x, sp.y, r + 2 / zoom, 0, Math.PI * 2);
+        ctx.arc(sp.x, sp.y, r + 2 / uiZoom, 0, Math.PI * 2);
         ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 2.5 / zoom;
+        ctx.lineWidth = 2.5 / uiZoom;
         ctx.stroke();
         // Crosshair ticks around the bubble — draws the eye in from a distance.
-        const tick = 11 / zoom, gap = r + (16 / zoom) * pulse;
+        const tick = 11 / uiZoom, gap = r + (16 / uiZoom) * pulse;
         ctx.strokeStyle = `rgb(${CY})`;
-        ctx.lineWidth = 3.5 / zoom;
+        ctx.lineWidth = 3.5 / uiZoom;
         ctx.lineCap = "round";
         for (let k = 0; k < 4; k++) {
           const ang = k * Math.PI / 2;
@@ -10094,6 +10991,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAll();
   loadConfirmedExchanges().then(() => renderAll()); // async — re-render once the durable exchange registry lands
   loadConfirmedContracts().then(() => renderAll()); // async — re-render once the durable contract registry lands
+  loadAiSettings(); // async — API key + usage counters, own IndexedDB key, never in a backup export
   toggleControlsCollapse(localStorage.getItem("wt_controls_collapsed") === "1");
   autoSyncBoundaryRegistryIfChanged(); // fire-and-forget — checks the connected master file for changes, silent if nothing changed
   setInterval(autoSyncBoundaryRegistryIfChanged, BOUNDARY_RESYNC_MS); // catch edits made to the master file while this tab stays open
@@ -10245,6 +11143,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("layoutModeForceBtn").addEventListener("click", () => setGraphLayoutMode("force"));
   document.getElementById("layoutModeTreeBtn").addEventListener("click", () => setGraphLayoutMode("tree"));
   document.getElementById("resetRowSpacingBtn").addEventListener("click", () => { if (resetRowSpacing) resetRowSpacing(); });
+  document.getElementById("resetViewBtn").addEventListener("click", () => { if (resetGraphView) resetGraphView(); });
   updateLayoutModeButtons();
   const xSlider = document.getElementById("treeXSpaceSlider");
   const ySlider = document.getElementById("treeYSpaceSlider");
@@ -10314,6 +11213,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("downloadBtn").addEventListener("click", () => { downloadBackup(false); });
   { const gz = document.getElementById("downloadGzBtn"); if (gz) gz.addEventListener("click", () => { downloadBackup(true).catch(e => showError("Compressed backup failed: " + (e && e.message ? e.message : e))); }); }
   { const eb = document.getElementById("exportBoundaryBtn"); if (eb) eb.addEventListener("click", exportBoundaryRegistryForBreakpoint); }
+  { const ai = document.getElementById("aiSettingsBtn"); if (ai) ai.addEventListener("click", openAiSettingsModal); }
   document.getElementById("exhibitFlaggedBtn").addEventListener("click", () => generateExhibit(true));
   document.getElementById("exhibitFullBtn").addEventListener("click", () => generateExhibit(false));
   document.getElementById("victimCsvBtn").addEventListener("click", () => {
