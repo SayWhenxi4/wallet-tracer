@@ -23,8 +23,15 @@
   }
   *{box-sizing:border-box;}
   body{
-    margin:0; background:var(--bg); color:var(--text);
+    margin:0; color:var(--text);
     font-family:var(--mono); font-size:14px; line-height:1.5;
+    background:
+      radial-gradient(circle at 12% 8%, rgba(224,164,88,0.10) 0%, transparent 38%),
+      radial-gradient(circle at 92% 90%, rgba(110,168,122,0.10) 0%, transparent 42%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 40px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 40px),
+      var(--bg);
+    background-attachment: fixed;
   }
   ::selection{ background:var(--amber-dim); color:#fff; }
 
@@ -144,6 +151,18 @@
   box-shadow: 0 0 0 3px rgba(224,164,88,0.15), 0 0 14px rgba(224,164,88,0.25);
 }
 
+/* Same calm static-glow treatment as gold-ring, recolored for the personal
+   (green) and destructive-action (red) contexts, so the visual language of
+   "this control matters, look here" stays consistent across the page. */
+.green-ring {
+  border: 1.5px solid #3ddc84 !important;
+  box-shadow: 0 0 0 3px rgba(61,220,132,0.28), 0 0 16px rgba(61,220,132,0.4);
+}
+.red-ring {
+  border: 1.5px solid var(--red) !important;
+  box-shadow: 0 0 0 3px rgba(201,96,90,0.15), 0 0 14px rgba(201,96,90,0.25);
+}
+
 /* ---------- Primary action highlight: animated spinning rainbow ring ---------- */
 .ring-wrap { position: relative; padding: 1.3px; border-radius: 12px; margin-top: 22px;
   background: conic-gradient(from var(--ring-angle),#ff3b30,#ff8a1e,#ffd60a,#35d07f,#34c7ff,#4a7bff,#ff3b30);
@@ -162,6 +181,7 @@
 
 <header>
   <a href="index.html" style="display:inline-block; font-size:11px; color:#7ea6d9; text-decoration:none; margin-bottom:8px;">&larr; Back to Wallet Tracer</a>
+  <div style="font-family:var(--mono); font-size:12px; color:#4ad8e8; letter-spacing:3px; text-transform:uppercase; font-weight:700; margin-bottom:8px;">⚡ Wallet-Tracer // Custody-Break Registry</div>
   <div class="brand">
     <svg class="brand-mark" viewBox="0 0 34 34">
       <line x1="2" y1="17" x2="14" y2="17" stroke="#7ea6d9" stroke-width="2"/>
@@ -282,43 +302,116 @@
     </div>
   </div>
 
-  <div class="panel">
-    <h3><span class="dot"></span>Master file (portable drive)</h3>
-    <div class="note" style="margin-bottom:12px;">Connects this page directly to ONE file on disk — on your portable SSD, a folder, wherever — so Save/Load always read and write that same file instead of piling up new downloads. Plain, unencrypted JSON. Chrome/Edge on desktop only (the underlying browser API isn't in Firefox or Safari).</div>
+  <div id="masterFileCollapseHeader" onclick="toggleMasterFileCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none;">
+    <span id="masterFileCollapseArrow" style="font-family:var(--mono); color:var(--amber);">&#9658;</span>
+    <span style="font-size:12px; color:var(--text);">Master file (portable drive)</span>
+    <span style="font-size:10px; font-weight:400; color:var(--amber); border:1px solid var(--amber-dim); border-radius:4px; padding:2px 6px;">SHARED REGISTRY</span>
+    <span style="font-size:10.5px; color:var(--text-dim);">&mdash; admin feature, not needed just to browse the registry</span>
+  </div>
+  <div id="masterFileCollapseBody" style="display:none;">
+  <div class="panel" style="margin-top:0; border-top:none; border-radius:0 0 6px 6px;">
+    <div class="note" style="margin-bottom:12px;">Connects this page directly to ONE file on disk — on your portable SSD, a folder, wherever — so Save/Load always read and write that same file instead of piling up new downloads. Plain, unencrypted JSON. Chrome/Edge on desktop only (the underlying browser API isn't in Firefox or Safari). <strong>This saves the shared custody-break registry (mixers, bridges, confirmed exchange wallets) — the same data everyone using Breakpoint sees, not anything from your own casework.</strong></div>
     <div class="note" id="masterFileStatus" style="margin-bottom:12px; color:var(--amber);">Checking…</div>
     <div class="btn-row">
-      <button onclick="chooseMasterFile(true)">Create new master file…</button>
-      <button class="ghost" onclick="chooseMasterFile(false)">Open existing master file…</button>
+      <button onclick="chooseMasterFile(true)">Create new registry master file…</button>
+      <button class="ghost" onclick="chooseMasterFile(false)">Open existing registry master file…</button>
       <button id="masterReconnectBtn" class="ghost" style="display:none;" onclick="requestMasterPermission()">Reconnect (needs a click)</button>
     </div>
     <div class="btn-row">
-      <button onclick="saveToMasterFile()">Save to master file</button>
-      <button class="ghost" onclick="loadFromMasterFile()">Load from master file</button>
+      <button onclick="saveToMasterFile()">Save to registry master file</button>
+      <button class="ghost" onclick="loadFromMasterFile()">Load from registry file</button>
       <button class="ghost" onclick="forgetMasterFile()">Forget connection</button>
     </div>
+  </div>
   </div>
 
   <div id="dropboxCollapseHeader" onclick="toggleDropboxCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none; margin-top:22px;">
     <span id="dropboxCollapseArrow" style="font-family:var(--mono); color:var(--amber);">&#9658;</span>
     <span style="font-size:12px; color:var(--text);">Cloud sync (Dropbox)</span>
+    <span style="font-size:10px; font-weight:400; color:var(--amber); border:1px solid var(--amber-dim); border-radius:4px; padding:2px 6px;">SHARED REGISTRY</span>
     <span style="font-size:10.5px; color:var(--text-dim);">&mdash; admin feature, not needed just to browse the registry</span>
   </div>
   <div id="dropboxCollapseBody" style="display:none;">
   <div class="panel" style="margin-top:0; border-top:none; border-radius:0 0 6px 6px;">
-    <div class="note" style="margin-bottom:12px;">Saves the registry to a file in your own Dropbox instead of a file on one specific computer — works from any device you sign into. Once saved, a public read-only link lets OTHER devices (including phones, and Wallet-Tracer's boundary registry sync) pull the current data automatically, with no sign-in needed just to read it.</div>
+    <div class="note" style="margin-bottom:12px;">Saves the registry to a file in your own Dropbox instead of a file on one specific computer — works from any device you sign into. Once saved, a public read-only link lets OTHER devices (including phones, and Wallet-Tracer's boundary registry sync) pull the current data automatically, with no sign-in needed just to read it. <strong>This is the shared custody-break registry — mixers, bridges, confirmed exchange wallets — not your own casework.</strong></div>
     <div class="note" id="dropboxStatus" style="margin-bottom:12px; color:var(--amber);">Not connected.</div>
     <div class="btn-row" id="dropboxSignedOutRow">
       <button onclick="dropboxSignIn()">Sign in with Dropbox</button>
     </div>
     <div class="btn-row" id="dropboxSignedInRow" style="display:none;">
-      <button onclick="saveToDropbox()">Save to Dropbox</button>
-      <button class="ghost" onclick="loadFromDropbox()">Load from Dropbox</button>
+      <button onclick="saveToDropbox()">Save registry to Dropbox</button>
+      <button class="ghost" onclick="loadFromDropbox()">Load registry from Dropbox</button>
       <button class="ghost" onclick="dropboxSignOut()">Sign out</button>
     </div>
     <div class="note" id="dropboxShareLinkBox" style="display:none; margin-top:10px;">
       Public read-only link (share this with anyone / use it in Wallet-Tracer):<br>
       <code id="dropboxShareLink" style="word-break:break-all; font-size:12px;"></code>
       <button class="ghost" style="margin-top:6px;" onclick="copyDropboxLink()">Copy link</button>
+    </div>
+  </div>
+  </div>
+
+  <div id="personalCoreCollapseHeader" onclick="togglePersonalCoreCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--green); user-select:none; margin-top:22px; border-radius:6px 6px 0 0;">
+    <span id="personalCoreCollapseArrow" style="font-family:var(--mono); color:var(--green);">&#9660;</span>
+    <span style="font-size:12px; color:var(--text);">🔒 My Investigation (Core Nodes)</span>
+    <span style="font-size:10px; font-weight:400; color:var(--green); border:1px solid var(--green); border-radius:4px; padding:2px 6px;">PERSONAL — LOCAL ONLY</span>
+  </div>
+  <div id="personalCoreCollapseBody">
+  <div class="panel" style="margin-top:0; border-top:none; border-radius:0 0 6px 6px; border-color:var(--green);">
+    <div class="note" style="margin-bottom:12px; border-left:2px solid var(--green); padding-left:10px;">
+      <strong style="color:var(--green);">This is completely separate from the shared registry above.</strong> Nothing here is the custody-break data (mixers/bridges/exchanges) — this is the trimmed-down "core" of your own Wallet-Tracer investigation: whichever wallets you've actually scanned, categorized, or added notes to. <strong>Never synced to Dropbox, never shared with anyone.</strong>
+    </div>
+
+    <div style="font-size:12px; font-weight:600; color:var(--text); margin-bottom:6px;">Step 1 — Bring in your investigation</div>
+    <div class="note" style="margin-bottom:8px; font-size:11.5px;">Import a trimmed core-nodes export from Wallet-Tracer (.json or .json.gz — an array of node objects, or a full backup — only investigated/manually-categorized/noted/flagged wallets are kept either way). This also saves automatically to this browser's own storage, so it's still here next time you open this page even without doing anything else below.</div>
+    <div class="btn-row">
+      <button style="border-color:var(--green); color:var(--green);" onclick="document.getElementById('personalCoreImportFile').click()">Import from Wallet-Tracer export…</button>
+      <input type="file" id="personalCoreImportFile" accept=".json,.gz" style="display:none" onchange="importPersonalCoreFile(event)">
+      <button class="ghost red-ring" onclick="clearPersonalCore()">Clear</button>
+    </div>
+    <div class="note" id="personalCoreSummary" style="margin-top:10px; font-size:12px;"></div>
+
+    <div id="personalCoreTableCollapseHeader" class="green-ring" onclick="togglePersonalCoreTableCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border-radius:6px; margin-top:12px; user-select:none;">
+      <span id="personalCoreTableCollapseArrow" style="font-family:var(--mono); color:var(--green);">&#9658;</span>
+      <span style="font-size:12px; color:var(--text);">View my investigation's node list</span>
+      <span id="personalCoreTableCount" style="font-size:11px; color:var(--text-dim); margin-left:auto;"></span>
+    </div>
+    <div id="personalCoreTableCollapseBody" style="display:none;">
+      <input type="text" id="personalCoreSearch" oninput="renderPersonalCoreTable()" placeholder="Search address, category, notes…" style="margin:10px 0;">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:30%">Address</th>
+            <th style="width:12%">Chain</th>
+            <th style="width:14%">Category</th>
+            <th style="width:10%">Tx Count</th>
+            <th style="width:10%">Investigated</th>
+            <th style="width:24%">Notes</th>
+          </tr>
+        </thead>
+        <tbody id="personalCoreTbody"></tbody>
+      </table>
+      <div class="empty" id="personalCoreEmptyMsg" style="display:none">No nodes loaded yet — import your investigation above.</div>
+    </div>
+
+    <div style="font-size:12px; font-weight:600; color:var(--text); margin:20px 0 6px;">Step 2 — Choose where it's saved (optional)</div>
+    <div class="note" style="margin-bottom:8px; font-size:11.5px;">Connect a real file on your computer — a folder you choose, a portable drive, wherever — so Save always writes there instead of trusting this browser's own storage. Plain, unencrypted JSON, yours to move or back up however you like. Chrome/Edge on desktop only (the underlying browser API isn't in Firefox, Safari, or mobile browsers — everywhere else, use Export below and save the download wherever your phone/browser puts it).</div>
+    <div class="note" id="personalCoreStatus" style="margin-bottom:12px; color:var(--green);">Checking…</div>
+    <div class="btn-row">
+      <button style="border-color:var(--green); color:var(--green);" onclick="choosePersonalCoreFile(true)">Create new personal file…</button>
+      <button class="ghost" style="border-color:var(--green);" onclick="choosePersonalCoreFile(false)">Open existing personal file…</button>
+      <button id="personalCoreReconnectBtn" class="ghost" style="display:none; border-color:var(--green);" onclick="requestPersonalCorePermission()">Reconnect (needs a click)</button>
+    </div>
+    <div class="btn-row">
+      <button class="green-ring" style="color:var(--green);" onclick="saveToPersonalCoreFile()">Save MY investigation to this file</button>
+      <button class="ghost" style="border-color:var(--green);" onclick="loadFromPersonalCoreFile()">Load MY investigation from this file</button>
+      <button class="ghost red-ring" onclick="forgetPersonalCoreFile()">Forget connection</button>
+    </div>
+
+    <div style="font-size:12px; font-weight:600; color:var(--text); margin:20px 0 6px;">Quick backup (works on any device, including phones)</div>
+    <div class="btn-row">
+      <button class="ghost green-ring" onclick="exportPersonalCoreJSON()">Export as JSON (download)</button>
+      <button class="ghost green-ring" onclick="exportPersonalCoreGzip()">Export as JSON.gz (compressed)</button>
     </div>
   </div>
   </div>
@@ -704,7 +797,13 @@ async function init(){
   render();
   toggleTableCollapse(localStorage.getItem('bp_table_collapsed') === '1');
   toggleDropboxCollapse(localStorage.getItem('bp_dropbox_collapsed') !== '0'); // default collapsed - only expand if explicitly reopened before
+  toggleMasterFileCollapse(localStorage.getItem('bp_master_file_collapsed') !== '0'); // default collapsed, same as Dropbox — admin-only tools
+  togglePersonalCoreCollapse(localStorage.getItem('bp_personal_core_collapsed') === '1'); // default EXPANDED — this is the primary section for regular users
+  togglePersonalCoreTableCollapse(localStorage.getItem('bp_personal_core_table_collapsed') !== '0'); // default collapsed/tucked away, same as the main registry table can be
   tryRestoreMasterHandle();
+  tryRestorePersonalCoreHandle();
+  personalCoreNodes = await loadPersonalCoreFromCache(); // local IndexedDB cache, populated by Step 1 (import) regardless of whether a file is connected
+  updatePersonalCoreUI();
   await handleDropboxRedirect(); // no-op unless we just came back from Dropbox's sign-in page
   await updateDropboxUI();
   autoSyncFromDropboxIfChanged(); // fire-and-forget - silently pulls newer data if signed in, no popup
@@ -750,6 +849,15 @@ function toggleDropboxCollapse(forceState) {
   body.style.display = isCollapsed ? 'none' : '';
   arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
   localStorage.setItem('bp_dropbox_collapsed', isCollapsed ? '1' : '0');
+}
+
+function toggleMasterFileCollapse(forceState) {
+  const body = document.getElementById('masterFileCollapseBody');
+  const arrow = document.getElementById('masterFileCollapseArrow');
+  const isCollapsed = forceState !== undefined ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+  localStorage.setItem('bp_master_file_collapsed', isCollapsed ? '1' : '0');
 }
 
 // A starter set of common chain names, so the datalist below has good
@@ -1213,6 +1321,366 @@ function forgetMasterFile(){
   });
   updateMasterFileUI();
   showToast('Disconnected');
+}
+
+// ---------- Personal investigation core (LOCAL ONLY — never Dropbox) ----------
+// Deliberately a completely separate dataset from `entries` (the shared
+// custody-break registry). Holds a trimmed slice of ONE investigator's own
+// Wallet-Tracer case — whichever wallets they've actually scanned,
+// categorized, or annotated — not shared infrastructure knowledge.
+//
+// Earlier version of this mirrored the registry's "connect to one file on
+// disk, Save/Load read and write it" mechanism. That was the wrong pattern
+// here: the registry needs a persistent file connection because it's
+// continuously hand-edited over months by potentially several people. This
+// data is different — it's an occasional snapshot pulled OUT of
+// Wallet-Tracer, not something edited in place. A file-connect/save/load/
+// forget flow that looked identical to the registry's was confusing for no
+// benefit — Import/Export covers the actual use case in two buttons instead
+// of six, with no ambiguous "connected but nothing saved yet" state possible.
+let personalCoreNodes = [];          // in-memory: array of trimmed node objects
+
+const PERSONAL_CORE_DB = 'breakpoint_personal_core';
+function openPersonalCoreDB(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(PERSONAL_CORE_DB, 1);
+    req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('nodes')) req.result.createObjectStore('nodes', { keyPath: '_key' }); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function cachePersonalCoreLocally(nodes){
+  const db = await openPersonalCoreDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('nodes', 'readwrite');
+    const store = tx.objectStore('nodes');
+    store.clear();
+    nodes.forEach(n => store.put({ _key: `${(n.chain||'unknown')}:${(n.address||'').toLowerCase()}`, ...n }));
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+}
+async function loadPersonalCoreFromCache(){
+  const db = await openPersonalCoreDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('nodes', 'readonly');
+    const req = tx.objectStore('nodes').getAll();
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+// ---------- Personal core: optional connection to a real file on disk ----------
+// Same File System Access API pattern the registry's master file uses, but
+// for the personal-investigation dataset. This is genuinely optional — Step
+// 1 (import) already saves automatically to this browser's own storage — but
+// some people specifically want to know exactly where their data lives on
+// disk (a chosen folder, a portable drive) rather than trust invisible
+// browser storage, and on desktop Chrome/Edge this lets them pick that
+// location themselves. Reuses the registry's HANDLE_DB object store under a
+// different key rather than standing up a whole separate database for it.
+let personalCoreHandle = null;
+
+async function savePersonalCoreHandleRef(handle){
+  const hdb = await openHandleDB();
+  return new Promise((resolve, reject) => {
+    const tx = hdb.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'personalCore');
+    tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+  });
+}
+async function loadPersonalCoreHandleRef(){
+  const hdb = await openHandleDB();
+  return new Promise((resolve, reject) => {
+    const tx = hdb.transaction('handles', 'readonly');
+    const req = tx.objectStore('handles').get('personalCore');
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function updatePersonalCoreFileUI(){
+  const el = document.getElementById('personalCoreStatus');
+  const reconnectBtn = document.getElementById('personalCoreReconnectBtn');
+  if (!el) return;
+  if (!FS_ACCESS_SUPPORTED) {
+    el.textContent = 'Direct-file connection not supported in this browser \u2014 use Chrome or Edge on desktop. The quick Export below still works everywhere, including phones.';
+    if (reconnectBtn) reconnectBtn.style.display = 'none';
+    return;
+  }
+  if (!personalCoreHandle) { el.textContent = 'Not connected to a file \u2014 your data is still saved automatically in this browser (Step 1), this step is optional.'; if (reconnectBtn) reconnectBtn.style.display = 'none'; return; }
+  el.textContent = `Connected: ${personalCoreHandle.name}`;
+  if (reconnectBtn) reconnectBtn.style.display = 'none';
+}
+
+async function choosePersonalCoreFile(createNew){
+  if (!FS_ACCESS_SUPPORTED) { showToast('Not supported in this browser \u2014 use Chrome or Edge on desktop.'); return; }
+  try {
+    personalCoreHandle = createNew
+      ? await window.showSaveFilePicker({ suggestedName: 'my-investigation-core.json', types: [{ description: 'Personal investigation core (Wallet-Tracer)', accept: { 'application/json': ['.json'] } }] })
+      : (await window.showOpenFilePicker({ types: [{ description: 'Personal investigation core (Wallet-Tracer)', accept: { 'application/json': ['.json'], 'application/gzip': ['.gz'] } }] }))[0];
+    await savePersonalCoreHandleRef(personalCoreHandle);
+    updatePersonalCoreFileUI();
+    showToast('Personal file connected \u2014 use Save/Load below');
+  } catch (err) {
+    if (err.name !== 'AbortError') showToast('Could not connect: ' + err.message);
+  }
+}
+
+async function requestPersonalCorePermission(){
+  if (!personalCoreHandle) return false;
+  const perm = await personalCoreHandle.requestPermission({ mode: 'readwrite' });
+  if (perm === 'granted') { showToast('Reconnected to personal file'); updatePersonalCoreFileUI(); return true; }
+  showToast('Permission denied'); return false;
+}
+
+async function tryRestorePersonalCoreHandle(){
+  if (!FS_ACCESS_SUPPORTED) { updatePersonalCoreFileUI(); return; }
+  try {
+    const handle = await loadPersonalCoreHandleRef();
+    if (!handle) { updatePersonalCoreFileUI(); return; }
+    personalCoreHandle = handle;
+    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    updatePersonalCoreFileUI();
+    const reconnectBtn = document.getElementById('personalCoreReconnectBtn');
+    if (perm !== 'granted' && reconnectBtn) reconnectBtn.style.display = '';
+  } catch (err) { /* handle may be stale — leave disconnected */ }
+}
+
+async function saveToPersonalCoreFile(){
+  if (!personalCoreHandle) { showToast('Connect a personal file first (above)'); return; }
+  if (!personalCoreNodes.length) { showToast('Nothing loaded yet \u2014 import your investigation first (Step 1)'); return; }
+  try {
+    const perm = await personalCoreHandle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { showToast('Permission denied'); return; }
+    showToast('Saving\u2026');
+    await writeToHandle(personalCoreHandle, JSON.stringify({ personalCore: personalCoreNodes, exported: new Date().toISOString() }));
+    showToast(`Saved ${personalCoreNodes.length.toLocaleString()} node(s) to ${personalCoreHandle.name}`);
+  } catch (err) {
+    showToast('Save failed: ' + err.message);
+  }
+}
+
+async function loadFromPersonalCoreFile(){
+  if (!personalCoreHandle) { showToast('Connect a personal file first (above)'); return; }
+  try {
+    const perm = await personalCoreHandle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { showToast('Permission denied'); return; }
+    const file = await personalCoreHandle.getFile();
+    // Same decompression path the Import button uses — this file could be
+    // plain JSON or gzip-compressed, and reading it as plain text() only
+    // (the previous version) silently produced garbled binary-as-text for a
+    // .gz file, then failed JSON.parse with a confusing error.
+    const text = await decompressIfGzip(file);
+    if (!text.trim()) { showToast('That file is empty \u2014 nothing saved to it yet'); return; }
+    const data = JSON.parse(text);
+    const rawNodes = Array.isArray(data.nodes) ? data.nodes : Array.isArray(data.personalCore) ? data.personalCore : (Array.isArray(data) ? data : []);
+    // Trim defensively even on load, same reasoning as import: an older file
+    // saved under looser criteria shouldn't carry old bloat back in silently.
+    personalCoreNodes = trimToInvestigationCore(rawNodes);
+    await cachePersonalCoreLocally(personalCoreNodes);
+    renderPersonalCoreSummary();
+    showToast(`Loaded ${personalCoreNodes.length.toLocaleString()} node(s)`);
+  } catch (err) {
+    showToast('Load failed: ' + err.message);
+  }
+}
+
+function forgetPersonalCoreFile(){
+  personalCoreHandle = null;
+  openHandleDB().then(hdb => {
+    const tx = hdb.transaction('handles', 'readwrite');
+    tx.objectStore('handles').delete('personalCore');
+  });
+  updatePersonalCoreFileUI();
+  showToast('Disconnected \u2014 your data stays saved in this browser either way');
+}
+
+function togglePersonalCoreCollapse(forceState){
+  const body = document.getElementById('personalCoreCollapseBody');
+  const arrow = document.getElementById('personalCoreCollapseArrow');
+  const isCollapsed = typeof forceState === 'boolean' ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+  localStorage.setItem('bp_personal_core_collapsed', isCollapsed ? '1' : '0');
+}
+
+function togglePersonalCoreTableCollapse(forceState){
+  const body = document.getElementById('personalCoreTableCollapseBody');
+  const arrow = document.getElementById('personalCoreTableCollapseArrow');
+  const isCollapsed = typeof forceState === 'boolean' ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+  localStorage.setItem('bp_personal_core_table_collapsed', isCollapsed ? '1' : '0');
+}
+
+// Read-only browsable list of whatever's currently loaded — mirrors the main
+// registry table's look (same table styling, a search box, a live count in
+// the collapsed header) but there's no Add-entry form here: this data comes
+// FROM Wallet-Tracer via import, not typed in by hand, so editing happens
+// there, not here.
+function renderPersonalCoreTable(){
+  const countEl = document.getElementById('personalCoreTableCount');
+  const tbody = document.getElementById('personalCoreTbody');
+  const empty = document.getElementById('personalCoreEmptyMsg');
+  if (!tbody) return;
+
+  const q = (document.getElementById('personalCoreSearch')?.value || '').trim().toLowerCase();
+  const list = !q ? personalCoreNodes : personalCoreNodes.filter(n =>
+    (n.address||'').toLowerCase().includes(q) ||
+    (n.category||'').toLowerCase().includes(q) ||
+    (n.notes||'').toLowerCase().includes(q) ||
+    (n.chain||'').toLowerCase().includes(q)
+  );
+
+  countEl.textContent = q
+    ? `${list.length.toLocaleString()} shown / ${personalCoreNodes.length.toLocaleString()} total`
+    : `${personalCoreNodes.length.toLocaleString()} node(s)`;
+
+  tbody.innerHTML = '';
+  empty.style.display = list.length ? 'none' : 'block';
+  empty.textContent = personalCoreNodes.length ? 'No nodes match this search.' : 'No nodes loaded yet — import your investigation above.';
+
+  // Capped render for very large investigations — this is a browsing view,
+  // not the actual data store, so showing "first 500, refine your search"
+  // keeps the tab responsive without needing virtualized scrolling.
+  const RENDER_CAP = 500;
+  const toRender = list.slice(0, RENDER_CAP);
+  for (const n of toRender) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="addr" title="Click to copy" onclick="copyAddr(this)">${escapeHTML(n.address||'')}</span></td>
+      <td>${escapeHTML(n.chain||'')}</td>
+      <td>${escapeHTML(n.category||'unclassified')}</td>
+      <td>${(n.txCount||0).toLocaleString()}</td>
+      <td>${n.investigated ? '✓' : ''}</td>
+      <td>${escapeHTML((n.notes||'').slice(0,150))}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+  if (list.length > RENDER_CAP) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td colspan="6" class="note" style="text-align:center;">…and ${(list.length - RENDER_CAP).toLocaleString()} more — narrow your search to see them.</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+function renderPersonalCoreSummary(){
+  const el = document.getElementById('personalCoreSummary');
+  if (!el) return;
+  if (!personalCoreNodes.length) { el.textContent = 'No personal investigation data loaded yet.'; renderPersonalCoreTable(); return; }
+  const byCategory = {};
+  personalCoreNodes.forEach(n => { const c = n.category || 'unclassified'; byCategory[c] = (byCategory[c]||0)+1; });
+  const parts = Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).map(([c,n]) => `${c}: ${n}`).join(' · ');
+  el.textContent = `${personalCoreNodes.length.toLocaleString()} node(s) loaded (saved automatically in this browser) — ${parts}`;
+  renderPersonalCoreTable();
+}
+
+function updatePersonalCoreUI(){
+  updatePersonalCoreFileUI();
+  renderPersonalCoreSummary();
+}
+
+// Applies the SAME "core" criteria used everywhere else tonight: keep a node
+// only if it's been individually investigated, manually categorized, has
+// notes, or already carries a MEANINGFUL category — discard bare stub nodes
+// with no investigative content. "frequent" is deliberately excluded from
+// "meaningful" here: the app auto-assigns it to any wallet with 4+
+// transactions, which says nothing about whether an investigator actually
+// looked at it — treating it as automatic proof of relevance let 13,000+
+// untouched wallets slip through a single earlier export and made the
+// "core" almost as large as the full dataset it was supposed to replace. A
+// "frequent" wallet only counts if it ALSO qualifies some other way.
+const MEANINGFUL_CATEGORIES = new Set(['scam', 'root', 'exchange', 'contract', 'router', 'victim']);
+function trimToInvestigationCore(nodes){
+  return nodes.filter(n => {
+    if (n.investigated) return true;
+    if (n.manualCategory) return true;
+    if ((n.notes || '').trim()) return true;
+    if (n.category && MEANINGFUL_CATEGORIES.has(n.category)) return true;
+    return false;
+  });
+}
+
+async function decompressIfGzip(file){
+  const buf = await file.arrayBuffer();
+  const isGzip = buf.byteLength > 2 && new Uint8Array(buf, 0, 2)[0] === 0x1f && new Uint8Array(buf, 0, 2)[1] === 0x8b;
+  if (!isGzip) return new TextDecoder().decode(buf);
+  if (typeof DecompressionStream === 'undefined') throw new Error('This browser can\u2019t decompress .gz files directly \u2014 unzip it first, or use Chrome/Edge/Firefox (recent versions).');
+  const ds = new DecompressionStream('gzip');
+  const stream = new Blob([buf]).stream().pipeThrough(ds);
+  const decompressed = await new Response(stream).arrayBuffer();
+  return new TextDecoder().decode(decompressed);
+}
+
+async function importPersonalCoreFile(event){
+  const file = event.target.files[0];
+  event.target.value = '';
+  if (!file) return;
+  try {
+    const text = await decompressIfGzip(file);
+    const data = JSON.parse(text);
+    const rawNodes = Array.isArray(data.nodes) ? data.nodes            // full Wallet-Tracer backup
+                    : Array.isArray(data.personalCore) ? data.personalCore  // already a personal-core export
+                    : Array.isArray(data) ? data                        // bare array
+                    : null;
+    if (!rawNodes) { showToast('Unrecognized file format \u2014 expected a Wallet-Tracer backup or personal-core export'); return; }
+    // Always re-apply the trim, even on an already-exported personal-core
+    // file — an older export made before this rule tightened (or one that
+    // slipped through some other way) shouldn't carry its bloat forward
+    // just because it was already "trimmed" once under looser criteria.
+    personalCoreNodes = trimToInvestigationCore(rawNodes);
+    await cachePersonalCoreLocally(personalCoreNodes);
+    updatePersonalCoreUI();
+    showToast(rawNodes.length !== personalCoreNodes.length
+      ? `Imported \u2014 trimmed ${rawNodes.length.toLocaleString()} nodes down to ${personalCoreNodes.length.toLocaleString()} core node(s)`
+      : `Imported ${personalCoreNodes.length.toLocaleString()} node(s)`);
+  } catch (err) {
+    showToast('Import failed: ' + err.message);
+  }
+}
+
+function exportPersonalCoreJSON(){
+  if (!personalCoreNodes.length) { showToast('Nothing to export yet'); return; }
+  const blob = new Blob([JSON.stringify({ personalCore: personalCoreNodes, exported: new Date().toISOString() }, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `my-investigation-core_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+// Compressed counterpart to exportPersonalCoreJSON — matches the .json.gz
+// format Wallet-Tracer itself exports, so a file coming out of here looks
+// exactly like one coming out of there. CompressionStream is the write-side
+// equivalent of the DecompressionStream already used on import; support is
+// the same modern-browser baseline (Chrome/Edge/Firefox), so anywhere the
+// gzip import path already worked, this works too.
+async function exportPersonalCoreGzip(){
+  if (!personalCoreNodes.length) { showToast('Nothing to export yet'); return; }
+  if (typeof CompressionStream === 'undefined') { showToast('This browser can\u2019t create .gz files directly \u2014 use "Export as JSON" instead.'); return; }
+  try {
+    const text = JSON.stringify({ personalCore: personalCoreNodes, exported: new Date().toISOString() });
+    const cs = new CompressionStream('gzip');
+    const stream = new Blob([text]).stream().pipeThrough(cs);
+    const compressed = await new Response(stream).arrayBuffer();
+    const blob = new Blob([compressed], { type: 'application/gzip' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `my-investigation-core_${new Date().toISOString().slice(0,10)}.json.gz`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    showToast('Compression failed: ' + err.message);
+  }
+}
+
+function clearPersonalCore(){
+  if (!personalCoreNodes.length) { showToast('Nothing to clear'); return; }
+  if (!confirm(`Clear ${personalCoreNodes.length.toLocaleString()} loaded node(s) from this browser? This does not affect anything in Wallet-Tracer itself \u2014 just this local copy.`)) return;
+  personalCoreNodes = [];
+  cachePersonalCoreLocally([]);
+  updatePersonalCoreUI();
+  showToast('Cleared');
 }
 
 // ---------- Dropbox cloud sync ----------
