@@ -52,7 +52,13 @@
   html, body { margin: 0; padding: 0; touch-action: pan-y; overflow-x: hidden; width: 100%; }
   body {
     min-height: 100vh;
-    background: var(--ink-0);
+    background:
+      radial-gradient(circle at 10% 6%, rgba(232,193,74,0.09) 0%, transparent 38%),
+      radial-gradient(circle at 94% 92%, rgba(53,208,127,0.08) 0%, transparent 42%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 40px),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0px, rgba(255,255,255,0.018) 1px, transparent 1px, transparent 40px),
+      var(--ink-0);
+    background-attachment: fixed;
     font-family: var(--body);
     color: var(--text);
     padding: 40px 24px 64px;
@@ -113,6 +119,7 @@
     padding: 7px 13px; font-size: 12.5px; font-weight: 500;
   }
   button.small:hover { background: var(--ink-3); color: var(--text); border-color: #3e5178; }
+  #analyzeClustersBtn:hover { background: rgba(192,57,43,0.32) !important; color: #ffcfc7 !important; border-color: #e0473a !important; }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   button:disabled:hover { background: var(--brass); border-color: var(--brass); }
   button.small:disabled:hover { background: transparent; border-color: var(--line-strong); color: var(--text-2); }
@@ -708,6 +715,11 @@
         <h4>5. Verify every address independently before you act on it.</h4>
         <p>A category label here is the tool's <i>guess</i> from a pattern. Before you report, accuse, or file anything, open each key address at its public block explorer and confirm it with your own eyes. This is investigative assistance — it does not confirm guilt, freeze funds, or take any action for you, and it is not legal or financial advice.</p>
       </div>
+
+      <div class="rule warn">
+        <h4>6. Chain-of-custody tracing follows money. It will not find who's in charge of a contract — that takes a separate, deliberate step.</h4>
+        <p>The instinct on a known phishing act is to trace the stolen funds and run Contract Intel on the <i>deployer</i> of the vault/drainer contract — and that's correct, but it's not the whole picture. Every contract sitting on an edge of that custody chain — every wallet the funds merely passed through, not just the original trap — can itself have an owner or admin, and <b>ownership almost never shows up as a transaction</b>. It's often set once at deployment, stored silently in the contract's internal state, with no transfer to see. Money-tracing will never surface it, no matter how thoroughly you scan — it's a fundamentally different question ("who controls this?") from the one transaction graphs answer ("where did the money go?"). Run <b>Contract Intel</b> on every contract-type node touching your custody chain, not only the one that looks like the obvious center of the case — a "boring" secondary contract can turn out to be the one with the real owner behind it.</p>
+      </div>
     </div>
   </details>
 
@@ -860,6 +872,7 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
         <button class="small backup-btn" id="restoreBtn" style="border-color:#e8c14a; color:#f3d878;">Restore backup</button>
         <button class="small backup-btn" id="exportBoundaryBtn" style="border-color:#c9962a; color:#e0b04a;" title="Packages everything you've marked as exchange or verified contract into a file BREAKPOINT can import directly">Export verified infrastructure for BREAKPOINT</button>
         <button class="small backup-btn" id="aiSettingsBtn" style="border-color:#4f9dff; color:#7fb4ff;" title="Bring your own Anthropic API key. Calls go directly from this device to api.anthropic.com — nothing passes through any Wallet-Tracer server.">AI Analysis — Settings 🤖</button>
+        <button class="small backup-btn" id="analyzeClustersBtn" style="background:rgba(192,57,43,0.22); border-color:#c0392b; color:#ffb3a7; font-weight:600;" title="Free, deterministic graph analysis — runs entirely in your browser, no API calls, no cost. Finds which flagged wallets are structurally connected vs. separate, and ranks candidate wallets worth a closer look.">Analyze Clusters 🕸️</button>
       </span>
       <input type="file" id="fileInput" accept="application/json,.json,.gz" style="display:none" />
     </div>
@@ -4411,6 +4424,172 @@ const AI_MODEL_PRICING = {
 };
 
 // Settings modal — same overlay pattern as promptContractDetails/promptExchangeDetails.
+// Renders the free, deterministic cluster-analysis results. This is
+// intentionally NOT wired to trigger any AI calls itself — it surfaces
+// candidates; running AI on any of them stays a separate, manual,
+// cost-visible action, same as everywhere else in this app.
+function openClusterAnalysisModal() {
+  const result = computeClusterAnalysis();
+  const overlay = document.createElement("div");
+  overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;";
+
+  if (!result) {
+    overlay.innerHTML = `
+      <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:460px;width:100%;padding:20px;">
+        <h3 style="margin:0 0 10px;font-size:14px;color:var(--text);">Analyze Clusters</h3>
+        <p style="margin:0 0 16px;font-size:12.5px;color:var(--text-2);">No wallets are marked "Suspected Scam" yet in this case — cluster analysis needs at least one confirmed wallet to use as a starting point. Mark a wallet's category first, then run this again.</p>
+        <button type="button" class="small" id="__caClose">Close</button>
+      </div>`;
+    document.body.appendChild(overlay);
+    overlay.querySelector("#__caClose").onclick = () => overlay.remove();
+    return;
+  }
+
+  const catBadge = (cat, manual) => {
+    if (cat === "scam") return `<span class="ai-badge" style="background:rgba(192,57,43,0.18);color:#e08a7a;">Scam${manual ? "" : " (auto)"}</span>`;
+    if (cat === "exchange") return `<span class="ai-badge" style="background:rgba(79,157,255,0.18);color:#7fb4ff;">Exchange</span>`;
+    if (cat === "contract") return `<span class="ai-badge" style="background:rgba(139,150,168,0.18);color:#97a4bb;">Contract</span>`;
+    return `<span class="ai-badge unverified">Unclassified — candidate</span>`;
+  };
+
+  const componentsHtml = result.components.map((c, i) => {
+    const rows = c.ranked.slice(0, 10).map(r => {
+      // A wallet can show a category like "frequent" purely from being
+      // discovered as someone else's counterparty — that is NOT the same as
+      // this wallet having actually been scanned. Surface that distinction
+      // explicitly, since "View" only selects/focuses a wallet on the map —
+      // it does not fetch its transaction history. "Scan" is the action that
+      // actually does that.
+      const scanStatus = r.actuallyScanned
+        ? `<span style="color:#5fd98a;">✓ scanned</span>`
+        : `<span style="color:#e0b04a;">not yet scanned</span>`;
+      return `
+      <tr>
+        <td class="mono" style="font-size:11px; padding:4px 6px;">${escapeHtml(short(r.address))}</td>
+        <td style="padding:4px 6px;">${catBadge(r.category, r.manualCategory)}</td>
+        <td style="padding:4px 6px; font-size:11px; color:var(--text-3);">${r.degree} conn. · ${r.txCount} tx · ${scanStatus}</td>
+        <td style="padding:4px 6px; white-space:nowrap;">
+          <button type="button" class="small ca-view-btn" data-addr="${r.address}" style="font-size:10.5px; padding:2px 8px;" title="Select and focus this wallet on the map — does not fetch its data.">View →</button>
+          <button type="button" class="small ca-scan-btn" data-addr="${r.address}" data-chain="${r.chain}" style="font-size:10.5px; padding:2px 8px; border-color:#3aa596; color:#6fc7ba;" title="Actually fetch this wallet's transaction history from the block explorer.">Scan →</button>
+        </td>
+      </tr>`;
+    }).join("");
+    return `
+      <div style="border:1px solid var(--line-strong); border-radius:8px; padding:12px; margin-bottom:14px;">
+        <div style="font-weight:600; font-size:13px; margin-bottom:4px; color:var(--text);">
+          Cluster ${i + 1} — ${c.seedAddresses.length} confirmed scam wallet(s), ${c.size.toLocaleString()} total wallets
+        </div>
+        <div style="font-size:11px; color:var(--text-3); margin-bottom:8px;">
+          ${c.seedAddresses.length === 1 ? "Contains 1 of your confirmed scam wallets." : `Contains ${c.seedAddresses.length} of your confirmed scam wallets — meaning these are structurally wired together in this scan.`}
+        </div>
+        <table style="width:100%; border-collapse:collapse;">
+          <thead><tr style="color:var(--text-3); font-size:10.5px; text-align:left;"><th style="padding:4px 6px;">Address</th><th style="padding:4px 6px;">Status</th><th style="padding:4px 6px;">Connections</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join("");
+
+  const multiCluster = result.components.length > 1;
+
+  // Audit pass: run the same conflict detector against every wallet already
+  // tagged "scam" — this is what closes the loop on wallets that got
+  // mis-tagged BEFORE this guard existed, not just ones tagged from now on.
+  const scamNodes = state.nodes.filter(n => n.category === "scam");
+  const flaggedExisting = scamNodes
+    .map(n => ({ node: n, conflict: detectScamTagConflict(n) }))
+    .filter(x => x.conflict)
+    .sort((a, b) => (b.node.inValue || 0) - (a.node.inValue || 0));
+
+  const auditHtml = flaggedExisting.length ? `
+    <div style="border:2px solid #c0392b; background:rgba(192,57,43,0.08); border-radius:6px; padding:12px; margin-bottom:16px;">
+      <span class="ai-badge" style="background:rgba(192,57,43,0.2); color:#e08a7a;">⚠ ${flaggedExisting.length} ALREADY-TAGGED WALLET(S) MAY BE MISCATEGORIZED</span>
+      <p class="flag-text" style="margin-top:6px; font-size:12px;">These are already marked Suspected Scam, but show the same pattern as a real high-throughput service, not a purpose-built scam wallet — this can badly inflate any aggregate total (stolen-funds figures, exposure percentages) if left as-is.</p>
+      <table style="width:100%; border-collapse:collapse; margin-top:8px;">
+        <thead><tr style="color:var(--text-3); font-size:10.5px; text-align:left;"><th style="padding:4px 6px;">Address</th><th style="padding:4px 6px;">Why flagged</th><th></th></tr></thead>
+        <tbody>
+          ${flaggedExisting.map(({ node, conflict }) => `
+            <tr>
+              <td class="mono" style="font-size:11px; padding:4px 6px; vertical-align:top;">${escapeHtml(short(node.address))}<br><span style="color:var(--text-3);">${(node.inValue||0).toLocaleString(undefined,{maximumFractionDigits:2})} in · ${(node.txCount||0).toLocaleString()} tx</span></td>
+              <td style="padding:4px 6px; font-size:11px; color:var(--text-2); vertical-align:top;">${escapeHtml(conflict)}</td>
+              <td style="padding:4px 6px; white-space:nowrap; vertical-align:top;">
+                <button type="button" class="small ca-view-btn" data-addr="${node.address.toLowerCase()}" style="font-size:10.5px; padding:2px 8px;">View →</button>
+                <button type="button" class="small ca-revert-btn" data-addr="${node.address.toLowerCase()}" style="font-size:10.5px; padding:2px 8px; border-color:#e0b04a; color:#e0b04a;">Revert to unclassified</button>
+              </td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>` : "";
+
+  overlay.innerHTML = `
+    <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:720px;width:100%;padding:20px;max-height:90vh;overflow-y:auto;">
+      <h3 style="margin:0 0 10px;font-size:14px;color:var(--text);">Analyze Clusters</h3>
+      <p style="margin:0 0 12px;font-size:12px;color:var(--text-2);">
+        Free, deterministic graph analysis — runs entirely in this browser, no API calls, no cost. Finds which of your confirmed scam wallets are structurally connected to each other (a path exists between them through the edges you've collected) versus sitting in entirely separate parts of the graph.
+      </p>
+      ${auditHtml}
+      <div style="border:1px solid #e0b04a; background:rgba(230,168,48,0.08); border-radius:6px; padding:10px 12px; margin-bottom:16px;">
+        <span class="ai-badge" style="background:rgba(230,168,48,0.2); color:#e0b04a;">⚠ LEAD, NOT A VERDICT</span>
+        <p class="flag-text" style="margin-top:6px; font-size:12px;">
+          A separate cluster does <strong>not</strong> prove a separate actor. It just as often means this scan hasn't gone deep enough yet to find the real connection — two wallets from the same operation can still land in different clusters simply because neither side has been traced far enough. Treat every cluster boundary here as something to investigate further, never as a conclusion on its own.
+        </p>
+      </div>
+      ${multiCluster ? `<p style="font-size:12.5px; color:var(--text); margin-bottom:12px;"><strong>${result.components.length} separate clusters</strong> found touching your ${result.totalConfirmedScamWallets} confirmed scam wallet(s) — worth checking whether the smaller ones are an independent operation or just an incompletely-traced part of the main one.</p>` : `<p style="font-size:12.5px; color:var(--text); margin-bottom:12px;">All ${result.totalConfirmedScamWallets} confirmed scam wallet(s) fall into a single connected cluster in this scan.</p>`}
+      ${componentsHtml}
+      <button type="button" class="small" id="__caClose" style="margin-top:4px;">Close</button>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector("#__caClose").onclick = () => overlay.remove();
+  overlay.querySelectorAll(".ca-view-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const addr = btn.getAttribute("data-addr");
+      state.selectedAddress = addr;
+      overlay.remove();
+      if (typeof graphFocusOn === "function" && graphFocusOn) graphFocusOn(addr);
+      renderAll();
+    });
+  });
+  overlay.querySelectorAll(".ca-revert-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const addr = btn.getAttribute("data-addr");
+      const node = nodeIndex().get(addr);
+      if (!node) return;
+      const ok = window.confirm(`Revert ${short(addr)} from "Suspected Scam" back to unclassified? This does not delete any data, just the category tag.`);
+      if (!ok) return;
+      node.category = "unclassified";
+      node.manualCategory = false;
+      markNodeDirty(node.address);
+      invalidateVisibleGraph();
+      scheduleSave();
+      overlay.remove();
+      openClusterAnalysisModal(); // re-open with the updated list
+    });
+  });
+  overlay.querySelectorAll(".ca-scan-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const addr = btn.getAttribute("data-addr");
+      const chain = btn.getAttribute("data-chain");
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Scanning…";
+      try {
+        await investigate(addr, chain);
+        // investigate() already updates state + re-renders the main app;
+        // closing the modal and focusing the wallet lets the user see the
+        // freshly-fetched data immediately instead of wondering whether
+        // anything happened.
+        state.selectedAddress = addr;
+        overlay.remove();
+        if (typeof graphFocusOn === "function" && graphFocusOn) graphFocusOn(addr);
+        renderAll();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = originalText;
+        showError(`Scan failed for ${short(addr)}: ${err.message || err}`);
+      }
+    });
+  });
+}
+
 function openAiSettingsModal() {
   const overlay = document.createElement("div");
   overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
@@ -5184,6 +5363,96 @@ function computeFlaggedConnectedSet() {
     if (flaggedSet.has(b) && (degree[b] || 0) <= FLAGGED_HUB_DEGREE_CAP) connected.add(a);
   });
   return connected;
+}
+
+// ============================================================================
+// CLUSTER ANALYSIS — free, deterministic, runs entirely client-side
+// ----------------------------------------------------------------------------
+// No API calls, no cost, no AI involved anywhere in this function. This
+// answers a genuinely different KIND of question than AI analysis does:
+// "are these confirmed-scam wallets structurally connected to each other, or
+// do some of them sit in entirely separate parts of the graph with no path
+// between them at all?" That's a fact about graph topology — answerable
+// exactly, for free, by walking the edge list — not something that benefits
+// from being run through a model. AI analysis (analyzeNodeWithAI) answers a
+// different question per wallet ("what does this specific wallet's behavior
+// mean"); this function answers "what does the SHAPE of the network look
+// like," which is what actually determines which wallets are worth spending
+// any AI budget on in the first place.
+//
+// CRITICAL FRAMING, enforced in the UI, not just this comment: a disconnected
+// component does NOT prove a separate actor. It just as easily means the
+// current scan hasn't gone deep enough to find the real connection yet —
+// two wallets can belong to the same operation and still show up in
+// different components simply because neither side has been traced far
+// enough. This function surfaces a structural fact and nothing more; what it
+// means is for the investigator to determine, the same "lead, not a verdict"
+// discipline as every other automated signal in this app.
+function computeClusterAnalysis() {
+  const seedAddrs = new Set(state.nodes.filter(n => n.category === "scam").map(n => n.address.toLowerCase()));
+  if (seedAddrs.size === 0) return null;
+
+  const adj = new Map();
+  const addEdge = (a, b) => {
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a).add(b);
+    adj.get(b).add(a);
+  };
+  state.edges.forEach(e => addEdge(e.a.toLowerCase(), e.b.toLowerCase()));
+
+  const idx = nodeIndex();
+  const visited = new Set();
+  const components = [];
+
+  seedAddrs.forEach(seed => {
+    if (visited.has(seed)) return;
+    const compMembers = new Set();
+    const queue = [seed];
+    while (queue.length) {
+      const cur = queue.pop();
+      if (compMembers.has(cur)) continue;
+      compMembers.add(cur);
+      (adj.get(cur) || new Set()).forEach(nb => { if (!compMembers.has(nb)) queue.push(nb); });
+    }
+    compMembers.forEach(m => visited.add(m));
+
+    const seedsInComp = [...compMembers].filter(m => seedAddrs.has(m));
+    if (!seedsInComp.length) return;
+
+    // Rank every member by in-component degree. Already-confirmed wallets
+    // (scam or exchange) are marked as such but still ranked — seeing a
+    // high-degree CONFIRMED wallet at the top of its own cluster is a useful
+    // sanity check; the genuinely new candidates are the unclassified ones
+    // mixed in among them.
+    const ranked = [...compMembers].map(addr => {
+      const n = idx.get(addr);
+      return {
+        address: addr,
+        degree: (adj.get(addr) || new Set()).size,
+        category: n ? n.category : "unclassified",
+        manualCategory: n ? !!n.manualCategory : false,
+        autoLabel: n && n.autoLabel,
+        txCount: n ? (n.txCount || 0) : 0,
+        chain: n ? n.chain : state.chainKey,
+        // A wallet can pick up an auto-suggested category (e.g. "frequent")
+        // purely from being discovered as someone ELSE's counterparty during
+        // a scan — that's not the same as this wallet having actually been
+        // scanned itself. investigated tracks the real thing: has its own
+        // transaction history actually been fetched.
+        actuallyScanned: !!(n && n.investigated),
+      };
+    }).sort((a, b) => b.degree - a.degree);
+
+    components.push({
+      seedAddresses: seedsInComp,
+      size: compMembers.size,
+      ranked,
+    });
+  });
+
+  components.sort((a, b) => b.seedAddresses.length - a.seedAddresses.length || b.size - a.size);
+  return { components, totalConfirmedScamWallets: seedAddrs.size };
 }
 
 // Simple BFS tier layout from root/investigated wallets — same idea as the
@@ -9162,6 +9431,66 @@ function setCategory(address, category) {
   // auto-trace patches overwrite a locked category.
   if (node) { node.category = category; node.manualCategory = true; markNodeDirty(node.address); invalidateVisibleGraph(); scheduleSave(); renderAll(); }
 }
+
+// Checks whether tagging this wallet "Suspected Scam" would contradict
+// evidence the tool ALREADY has about it — its own computed behavior
+// pattern, or an adjacency note that explicitly says its role hasn't been
+// verified yet. This exists because of a real, repeated failure mode: a
+// large real-world hub (an exchange, payment processor, or similar
+// high-throughput service) gets tagged "scam" during fast triage, and its
+// entire multi-year, mostly-unrelated transaction volume then gets counted
+// as if it were all theft proceeds — badly inflating any aggregate total
+// and undermining the whole case's credibility if it reaches a filing.
+// Returns a specific reason string if there's a conflict worth stopping for,
+// or null if the tag is going through clean.
+function detectScamTagConflict(node) {
+  if (!node) return null;
+  const notes = node.notes || "";
+  if (/NOT yet determined/i.test(notes)) {
+    return `This wallet's own notes explicitly say its role hasn't been verified yet ("verify each transfer on the block explorer before drawing conclusions") — you're about to mark it Suspected Scam without that verification having happened.`;
+  }
+  const bl = node.behaviorLabel;
+  if (bl && (bl.type === "hub" || bl.type === "distributor")) {
+    return `This wallet's own computed behavior pattern is "${bl.label}" — ${bl.detail} That's the signature of a legitimate high-throughput service, not a purpose-built scam wallet. A real theft-consolidation wallet usually shows a small number of large one-way transfers, not this.`;
+  }
+  if ((node.txCount || 0) >= 200) {
+    return `This wallet has ${(node.txCount || 0).toLocaleString()} transactions — unusually high for a purpose-built scam consolidation wallet (which typically shows a small number of large transfers). Worth double-checking this isn't a real high-throughput service before tagging it.`;
+  }
+  return null;
+}
+
+// Promise-based confirmation modal, same pattern as promptExchangeDetails —
+// requires an actual typed justification before resolving true, so a
+// scam tag placed over a flagged conflict always leaves a documented reason
+// behind instead of the empty notes field that made these so hard to spot
+// after the fact.
+function promptScamTagConfirmation(conflictReason) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
+    overlay.innerHTML = `
+      <div style="background:var(--ink-1);border:1px solid #c0392b;border-radius:10px;max-width:460px;width:100%;padding:20px;">
+        <h3 style="margin:0 0 10px;font-size:14px;color:#e08a7a;">⚠ This looks like it might not be a scam wallet</h3>
+        <p style="margin:0 0 12px;font-size:12.5px;color:var(--text-2);">${escapeHtml(conflictReason)}</p>
+        <p style="margin:0 0 12px;font-size:12.5px;color:var(--text-2);">If you've independently verified this and still want to tag it Suspected Scam, say why below — this gets saved to the wallet's notes so the reasoning isn't lost.</p>
+        <label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">Justification (required)</label>
+        <textarea id="__scJust" style="width:100%; min-height:70px;" placeholder="e.g. Confirmed via Chainalysis Reactor — high volume is because it's the attacker's automated sweep wallet, not a real service"></textarea>
+        <div style="display:flex;gap:8px;margin-top:14px;">
+          <button type="button" id="__scCancel" class="small">Cancel</button>
+          <button type="button" id="__scOk" class="small" style="border-color:#c0392b; color:#e08a7a;">Tag as Suspected Scam anyway</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const cleanup = (val) => { overlay.remove(); resolve(val); };
+    overlay.querySelector("#__scCancel").onclick = () => cleanup(null);
+    overlay.querySelector("#__scOk").onclick = () => {
+      const justification = overlay.querySelector("#__scJust").value.trim();
+      if (!justification) return;
+      cleanup(justification);
+    };
+    setTimeout(() => overlay.querySelector("#__scJust").focus(), 30);
+  });
+}
 function setNotes(address, notes) {
   const node = nodeIndex().get(address.toLowerCase());
   if (node) { node.notes = notes; markNodeDirty(node.address); scheduleSave(); }
@@ -9677,10 +10006,21 @@ function renderSidePanel() {
       dropdownMenu.style.display = dropdownMenu.style.display === "none" ? "block" : "none";
     });
     dropdownMenu.querySelectorAll(".custom-select-option").forEach((opt) => {
-      opt.addEventListener("click", (e) => {
+      opt.addEventListener("click", async (e) => {
         e.stopPropagation();
         dropdownMenu.style.display = "none";
-        setCategory(selectedNode.address, opt.getAttribute("data-category"));
+        const targetCategory = opt.getAttribute("data-category");
+        if (targetCategory === "scam") {
+          const node = nodeIndex().get(selectedNode.address.toLowerCase());
+          const conflict = detectScamTagConflict(node);
+          if (conflict) {
+            const justification = await promptScamTagConfirmation(conflict);
+            if (!justification) return; // cancelled — category left unchanged
+            const existingNotes = (node.notes || "").trim();
+            setNotes(selectedNode.address, existingNotes ? `${existingNotes}\n\n${justification}` : justification);
+          }
+        }
+        setCategory(selectedNode.address, targetCategory);
       });
     });
     document.getElementById("notesArea").addEventListener("input", (e) => setNotes(selectedNode.address, e.target.value));
@@ -11214,6 +11554,7 @@ document.addEventListener("DOMContentLoaded", () => {
   { const gz = document.getElementById("downloadGzBtn"); if (gz) gz.addEventListener("click", () => { downloadBackup(true).catch(e => showError("Compressed backup failed: " + (e && e.message ? e.message : e))); }); }
   { const eb = document.getElementById("exportBoundaryBtn"); if (eb) eb.addEventListener("click", exportBoundaryRegistryForBreakpoint); }
   { const ai = document.getElementById("aiSettingsBtn"); if (ai) ai.addEventListener("click", openAiSettingsModal); }
+  { const cb = document.getElementById("analyzeClustersBtn"); if (cb) cb.addEventListener("click", openClusterAnalysisModal); }
   document.getElementById("exhibitFlaggedBtn").addEventListener("click", () => generateExhibit(true));
   document.getElementById("exhibitFullBtn").addEventListener("click", () => generateExhibit(false));
   document.getElementById("victimCsvBtn").addEventListener("click", () => {
