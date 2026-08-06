@@ -4034,6 +4034,20 @@ function recomputeNodeAggregates() {
 // backing array is replaced (import, restore, clear, delete) or grows outside
 // these functions; node/edge objects are mutated in place, so entries stay valid.
 let __nodeIdx = null, __nodeIdxSrc = null, __edgeIdx = null, __edgeIdxSrc = null;
+// Investigator-verified hashes recorded directly in a wallet's notes. The
+// app's own txSamples are capped per edge and weighted toward largest-value
+// (see MAX_TX_SAMPLES) — a real transaction can exist on-chain and simply
+// not have been captured, especially on a busy consolidation hub. When an
+// investigator manually confirms one (e.g. via a block explorer) and records
+// the hash in that wallet's notes, that's the human-verified evidence — it
+// takes priority over an automated "not isolated" fallback in both exhibits.
+function notedHashesFor(address) {
+  const n = nodeIndex().get((address || "").toLowerCase());
+  const notes = (n && n.notes) || "";
+  const matches = notes.match(/0x[0-9a-fA-F]{64}/g) || [];
+  return [...new Set(matches.map(h => h.toLowerCase()))];
+}
+
 function nodeIndex() {
   if (__nodeIdxSrc !== state.nodes || __nodeIdx.size !== state.nodes.length) {
     __nodeIdx = new Map(state.nodes.map(n => [n.address.toLowerCase(), n]));
@@ -6820,12 +6834,28 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
         samples = samples.slice().sort((x, y) => Date.parse(x.ts) - Date.parse(y.ts));
       }
       const hashes = samples.map(s => s && s.hash).filter(Boolean).slice(0, max || 3);
-      if (!hashes.length) return "";
-      const links = hashes.map(h => {
-        const u = explorerTxUrl(chainKey, h);
-        return u ? `<a href="${u}">${escapeHtml(h)}</a>` : escapeHtml(h);
-      }).join("<br/>");
-      return `<div class="val" style="font-family:monospace; font-size:11px;">tx: ${links}</div>`;
+      if (hashes.length) {
+        const links = hashes.map(h => {
+          const u = explorerTxUrl(chainKey, h);
+          return u ? `<a href="${u}">${escapeHtml(h)}</a>` : escapeHtml(h);
+        }).join("<br/>");
+        return `<div class="val" style="font-family:monospace; font-size:11px;">tx: ${links}</div>`;
+      }
+      // Automated capture is capped per edge (MAX_TX_SAMPLES) and weighted
+      // toward largest-value — a real transaction can exist on-chain and
+      // simply not have been captured. If the investigator manually
+      // confirmed one and recorded the hash in the sending wallet's notes,
+      // use that — clearly labeled, since it's human-verified, not
+      // automated, evidence.
+      const noted = notedHashesFor(fromAddr).slice(0, max || 3);
+      if (noted.length) {
+        const links = noted.map(h => {
+          const u = explorerTxUrl(chainKey, h);
+          return u ? `<a href="${u}">${escapeHtml(h)}</a>` : escapeHtml(h);
+        }).join("<br/>");
+        return `<div class="val" style="font-family:monospace; font-size:11px;">tx (investigator-verified, recorded in notes): ${links}</div>`;
+      }
+      return "";
     };
     // Flarescan-family explorers support a received-from filter, which lets a
     // reviewer isolate exactly the deposits from the feeder wallet inside an
@@ -7066,22 +7096,143 @@ function generateLawEnforcementPacket(startAddr) {
       showError("This wallet needs a saved Theft Anchor (token, amount, AND date) before generating a law-enforcement packet — set one in the side panel. The date is what keeps pre-theft transactions out of the exhibit.");
       return;
     }
+    const anchorDateMs = Date.parse(anchor.date + "T00:00:00Z");
 
-    // Reuses generatePathExhibit's own computation directly — the exact
-    // same proven logic that already produces a correct chain-of-custody
-    // exhibit (tracing, split/converge detection, exchange routing, the
-    // diagram, all of it). This function only adds the law-enforcement-
-    // specific framing around that already-correct content: a disclaimer,
-    // a confirmed-exchange appendix, a CSV attachment, and a filing
-    // checklist. Nothing about the underlying trace is reimplemented here.
+    // Reuses generatePathExhibit's own TRACE DATA (path / splitInfo /
+    // splitRoutes) — the proven tracing, split-detection, and exchange-
+    // routing logic — but renders it independently in the plain,
+    // compliance-parseable format exchanges actually require (real CSV
+    // attachment, monospace, no decorative diagram, no investigator sign-off
+    // fields), rather than reusing that function's own investigator-facing
+    // HTML output, which is a different document for a different audience.
     const data = generatePathExhibit(start, null, String(anchor.amount), { returnDataOnly: true });
     if (!data) return; // generatePathExhibit already called showError with the specific reason
+    const { path, splitInfo, splitRoutes } = data;
+
+    const nodeByKey = (k) => nodeIndex().get(k.toLowerCase());
+    const fmtNum = (v) => (v === null || v === undefined) ? "" : Number(v).toLocaleString(undefined, { maximumFractionDigits: 6 });
+    const csvNum = (v) => (v === null || v === undefined) ? "" : Number(v).toFixed(6).replace(/\.?0+$/, "");
+    const findSampleTs = (fromAddr, toAddr, hash) => {
+      if (!hash) return null;
+      const a = fromAddr.toLowerCase(), b = toAddr.toLowerCase();
+      const edge = state.edges.find(e => (e.a.toLowerCase() === a && e.b.toLowerCase() === b) || (e.a.toLowerCase() === b && e.b.toLowerCase() === a));
+      const s = edge && Array.isArray(edge.txSamples) ? edge.txSamples.find(x => (x.hash || "").toLowerCase() === hash.toLowerCase()) : null;
+      return s ? { hash: s.hash, value: s.value, ts: s.ts } : null;
+    };
+    // Split branches and hub->exchange routes don't carry a hash directly.
+    // First try matching the recorded value to one real transaction. That
+    // fails whenever the recorded value is a SUM across several real
+    // transactions on a busy edge (confirmed case: this hub's route to its
+    // sweep wallet is exactly two combined real transfers, matching neither
+    // alone) — so the fallback picks the real sample on that edge dated
+    // closest to on-or-after the theft anchor, which is the transaction
+    // actually relevant to this case rather than older unrelated activity
+    // on the same pipeline.
+    const findSampleByValue = (fromAddr, toAddr, value) => {
+      const a = fromAddr.toLowerCase(), b = toAddr.toLowerCase();
+      const edge = state.edges.find(e => (e.a.toLowerCase() === a && e.b.toLowerCase() === b) || (e.a.toLowerCase() === b && e.b.toLowerCase() === a));
+      if (edge && Array.isArray(edge.txSamples) && edge.txSamples.length) {
+        // Both paths below require ts >= anchorDateMs. A real bug lived here
+        // once: value-matching alone, with no date check, matched a
+        // coincidentally similar-valued transaction from BEFORE the theft
+        // (Feb 6, 2026) and presented it as evidence — Rule 7's exact
+        // failure mode, reintroduced in this one branch that skipped the
+        // date guard every other path in this document enforces.
+        const dated = edge.txSamples.filter(s => s.ts && Date.parse(s.ts) >= anchorDateMs);
+        if (value) {
+          const tol = Math.abs(value) * 0.05;
+          const match = dated.filter(s => s.value !== undefined && Math.abs(s.value - value) <= tol)
+            .sort((x, y) => Math.abs(x.value - value) - Math.abs(y.value - value))[0];
+          if (match) return { hash: match.hash, value: match.value, ts: match.ts, source: "auto" };
+        }
+        const onOrAfter = dated.slice().sort((x, y) => Date.parse(x.ts) - Date.parse(y.ts));
+        if (onOrAfter.length) { const s = onOrAfter[0]; return { hash: s.hash, value: s.value, ts: s.ts, source: "auto" }; }
+      }
+      // Automated capture missed it (capped per edge, weighted toward
+      // largest-value — see MAX_TX_SAMPLES). If the investigator manually
+      // confirmed the real transaction and recorded the hash in the sending
+      // wallet's notes, use that instead of falling back to "not isolated."
+      const noted = notedHashesFor(fromAddr);
+      if (noted.length) return { hash: noted[0], value: null, ts: null, source: "noted" };
+      return null;
+    };
+
+    // Build the linear hop rows (victim through the split point / trail end).
+    const csvRows = [["tx_hash", "from_address", "to_address", "value", "token", "timestamp_utc"]];
+    let hopHtml = "";
+    for (let i = 0; i < path.length; i++) {
+      const hop = path[i];
+      const n = nodeByKey(hop.address) || {};
+      const isLast = i === path.length - 1;
+      const isExch = isLast && !!exchangeIdentity(n, hop.address);
+      const role = i === 0 ? "ORIGIN (victim / source wallet)"
+        : hop.splitsHere ? "SPLIT POINT — funds fan out below"
+        : (isLast ? (isExch ? "EXCHANGE ENDPOINT" : "TRAIL END IN LOADED DATA") : `Hop ${i}`);
+      hopHtml += `<div class="chain-step"><span class="role">${escapeHtml(role)}</span><br><span class="addr">${escapeHtml(displayAddr(hop.address))}</span>`;
+      if (isExch) hopHtml += `<div class="tx-detail">${escapeHtml(exchangeIdentity(n, hop.address))}</div>`;
+      if (hop.txHash) {
+        const s = findSampleTs(path[i - 1].address, hop.address, hop.txHash);
+        const ts = s ? s.ts : null;
+        hopHtml += `<div class="tx-detail">TxID: <span class="mono">${escapeHtml(hop.txHash)}</span> &nbsp;|&nbsp; Value: ${fmtNum(hop.val)}${ts ? ` &nbsp;|&nbsp; ${escapeHtml(ts)}` : ""}</div>`;
+        csvRows.push([hop.txHash, displayAddr(path[i - 1].address), displayAddr(hop.address), csvNum(hop.val), anchor.token || "", ts || ""]);
+      }
+      hopHtml += `</div>`;
+      if (i < path.length - 1) hopHtml += `<div class="chain-arrow">&#8595;</div>`;
+    }
+
+    // Split branches + convergence, using the SAME split detection the
+    // standard exhibit already found (splitInfo) — just rendered plainly.
+    let splitHtml = "";
+    if (splitInfo) {
+      splitHtml += `<div class="chain-arrow">&#8595; split ${splitInfo.branches.length} ways</div>`;
+      splitInfo.branches.forEach((b, i) => {
+        const s = findSampleByValue(splitInfo.splitFrom, b.address, b.val);
+        splitHtml += `<div class="chain-step"><span class="role">Split ${i + 1} — &asymp; ${fmtNum(b.val)}</span><br><span class="addr">${escapeHtml(displayAddr(b.address))}</span>`;
+        if (s) {
+          const tag = s.source === "noted" ? " (investigator-verified, recorded in notes)" : "";
+          splitHtml += `<div class="tx-detail">TxID${tag}: <span class="mono">${escapeHtml(s.hash || "")}</span>${s.value !== null && s.value !== undefined ? ` &nbsp;|&nbsp; Value: ${fmtNum(s.value)}` : ""}${s.ts ? ` &nbsp;|&nbsp; ${escapeHtml(s.ts)}` : ""}</div>`;
+          csvRows.push([s.hash || "", displayAddr(splitInfo.splitFrom), displayAddr(b.address), s.value !== null && s.value !== undefined ? csvNum(s.value) : csvNum(b.val), anchor.token || "", s.ts || ""]);
+        }
+        splitHtml += `</div>`;
+      });
+      splitHtml += `<div class="chain-arrow">&#8595; all branches converge</div>`;
+      const hubNode = nodeByKey(splitInfo.hubAddr);
+      splitHtml += `<div class="chain-step"><span class="role">Consolidation hub</span><br><span class="addr">${escapeHtml(displayAddr(splitInfo.hubAddr))}</span></div>`;
+
+      // Hub onward to any confirmed exchange (splitRoutes — same tracer-
+      // recorded routing generatePathExhibit already computed).
+      if (splitRoutes && splitRoutes.length) {
+        splitRoutes.forEach(rt => {
+          splitHtml += `<div class="chain-arrow">&#8595; recorded route to ${escapeHtml(rt.exchange)}</div>`;
+          let cursor = splitInfo.hubAddr;
+          rt.route.forEach(h => {
+            const hn = nodeByKey(h.address) || {};
+            const exName = exchangeIdentity(hn, h.address);
+            const isFeeder = rt.feeder && h.address.toLowerCase() === rt.feeder.toLowerCase();
+            const role = exName ? "EXCHANGE ENDPOINT" : (isFeeder ? "EXCHANGE-FEEDER WALLET" : "Onward hop");
+            const s = findSampleByValue(cursor, h.address, h.val);
+            splitHtml += `<div class="chain-step"><span class="role">${escapeHtml(role)}</span><br><span class="addr">${escapeHtml(displayAddr(h.address))}</span>`;
+            if (exName) splitHtml += `<div class="tx-detail">${escapeHtml(exName)} — confirmed exchange deposit wallet.</div>`;
+            if (s) {
+              const tag = s.source === "noted" ? " (investigator-verified, recorded in notes)" : "";
+              splitHtml += `<div class="tx-detail">TxID${tag}: <span class="mono">${escapeHtml(s.hash || "")}</span>${s.value !== null && s.value !== undefined ? ` &nbsp;|&nbsp; Value: ${fmtNum(s.value)}` : ""}${s.ts ? ` &nbsp;|&nbsp; ${escapeHtml(s.ts)}` : ""}</div>`;
+              csvRows.push([s.hash || "", displayAddr(cursor), displayAddr(h.address), s.value !== null && s.value !== undefined ? csvNum(s.value) : csvNum(h.val), anchor.token || "", s.ts || ""]);
+            } else {
+              splitHtml += `<div class="tx-detail">Route total carried onward (aggregate, may span several transactions): &asymp; ${fmtNum(h.val)} — individual transaction not isolated; verify on explorer before citing.</div>`;
+            }
+            splitHtml += `</div>`;
+            cursor = h.address;
+          });
+        });
+      } else {
+        splitHtml += `<div class="chain-step" style="border-color:#b00020; background:#fff5f5;"><span class="role" style="background:#b00020;">NO EXCHANGE REACHED — REQUIRES HUMAN REVIEW</span><br>No recorded route from the consolidation hub to any confirmed exchange exists in the loaded data yet. Trace this hub's outbound wallets further before concluding the funds haven't reached an exchange.</div>`;
+      }
+    }
 
     const exchanges = state.nodes.filter(n => n.category === "exchange");
-    const exchangeRows = exchanges.map(e =>
-      `<tr><td class="mono">${escapeHtml(e.address)}</td><td>${escapeHtml((e.notes || "").split("\n")[0] || "")}</td></tr>`
-    ).join("");
 
+
+    const csvText = csvRows.map(r => r.map(v => String(v).includes(",") ? `"${v}"` : v).join(",")).join("\n");
     const generated = new Date().toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" });
     const chainLabel = (CHAINS[originNode.chain] || {}).label || originNode.chain;
 
@@ -7089,7 +7240,7 @@ function generateLawEnforcementPacket(startAddr) {
 <style>
   :root { color-scheme: light; }
   html { background: #ffffff; }
-  body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; background: #ffffff; margin: 0; max-width: 900px; margin: 0 auto; padding: 40px 32px 80px; line-height: 1.5; font-size: 13.5px; }
+  body { font-family: 'Courier New', Courier, monospace; color: #1a1a1a; background: #ffffff; margin: 0; max-width: 900px; margin: 0 auto; padding: 40px 32px 80px; line-height: 1.5; font-size: 13.5px; }
   h1 { font-size: 20px; margin: 0 0 4px; }
   h2 { font-size: 15px; margin: 34px 0 10px; border-bottom: 2px solid #1a1a1a; padding-bottom: 6px; }
   .subtitle { color: #555; font-size: 12.5px; margin: 0 0 18px; }
@@ -7098,55 +7249,38 @@ function generateLawEnforcementPacket(startAddr) {
   .meta-table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 12.5px; }
   .meta-table td { padding: 4px 8px; vertical-align: top; border-bottom: 1px solid #eee; }
   .meta-table td:first-child { font-weight: bold; width: 220px; color: #444; }
-  .step { border-left: 4px solid #999; padding: 8px 0 8px 14px; margin: 10px 0; }
-  .role { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: #b8860b; font-weight: bold; margin-bottom: 3px; }
-  .addr { font-family: monospace; font-weight: bold; word-break: break-all; }
-  .val, .meta { font-size: 11.5px; color: #333; }
-  .arrow { text-align: center; color: #888; font-size: 16px; margin: 2px 0; }
+  .chain-step { border: 1px solid #ccc; border-radius: 4px; padding: 10px 14px; margin: 10px 0; background: #fafafa; }
+  .chain-step .addr { font-weight: bold; word-break: break-all; }
+  .chain-step .role { display: inline-block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold; color: #1a1a1a; margin-bottom: 4px; }
+  .chain-arrow { text-align: center; color: #888; font-size: 16px; margin: 2px 0; }
+  .tx-detail { font-size: 11.5px; color: #333; margin-top: 6px; padding-top: 6px; border-top: 1px dashed #ccc; word-break: break-all; }
   table.data-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 10px 0; }
   table.data-table th { background: #1a1a1a; color: #fff; text-align: left; padding: 5px 7px; }
-  table.data-table td { padding: 5px 7px; border-bottom: 1px solid #ddd; font-family: monospace; word-break: break-all; }
+  table.data-table td { padding: 5px 7px; border-bottom: 1px solid #ddd; font-family: 'Courier New', monospace; word-break: break-all; }
   table.data-table tr:nth-child(even) { background: #f7f7f7; }
   .checklist { list-style: none; padding: 0; }
   .checklist li { padding: 4px 0 4px 24px; position: relative; }
   .checklist li::before { content: "\\2610"; position: absolute; left: 0; font-size: 15px; }
+  .csv-block { background: #ffffff; color: #1a1a1a; border: 1px solid #ccc; padding: 14px; border-radius: 4px; font-size: 10.5px; overflow-x: auto; white-space: pre; margin: 10px 0; }
   .footer-note { margin-top: 50px; padding-top: 14px; border-top: 1px solid #ccc; font-size: 11px; color: #777; }
 </style></head><body>
   <h1>Wallet-Tracer — Evidence Packet</h1>
   <p class="subtitle">Prepared for referral to law enforcement / exchange compliance &middot; Generated ${generated}</p>
-  <div class="disclaimer">
-    <b>This is an evidence-formatting aid, not a legal instrument.</b> Nothing in this document is a subpoena, court order, or preservation demand, and it carries no legal authority on its own. The actual legal process (a subpoena, a 2703(d) order, a preservation letter under 18 U.S.C. &sect; 2703(f)) must still be drafted and issued by the appropriate legal authority. The chain below is this case's standard chain-of-custody exhibit output, unmodified — verify every address and transaction independently on a public block explorer before relying on it in any filing.
-  </div>
   <h2>1. Case Summary</h2>
   <table class="meta-table">
     <tr><td>Chain</td><td>${escapeHtml(chainLabel)}</td></tr>
     <tr><td>Theft date</td><td>${escapeHtml(anchor.date)}</td></tr>
     <tr><td>Asset stolen</td><td>${escapeHtml(String(anchor.amount))} ${escapeHtml(anchor.token || "")}</td></tr>
-    <tr><td>Victim / origin wallet</td><td class="mono">${escapeHtml(start)}</td></tr>
+    <tr><td>Victim / origin wallet</td><td class="mono">${escapeHtml(displayAddr(start))}</td></tr>
     <tr><td>Investigation tool</td><td>Wallet-Tracer (open-source, self-hosted blockchain forensics) &mdash; wallet-scanner.app</td></tr>
     <tr><td>Case network size</td><td>${state.nodes.length.toLocaleString()} wallets mapped, ${state.edges.length.toLocaleString()} traced connections, ${exchanges.length} confirmed exchange deposit point(s)</td></tr>
   </table>
   <h2>2. Verified Custody Chain</h2>
-  ${data.diagramHtml}
-  ${data.steps}
-  ${data.splitsSection}
-  <div style="margin:20px 0; padding:14px; background:#f7f7f7; border-radius:6px; font-size:12.5px;"><b>Conclusion.</b> ${data.conclusion}</div>
-  ${exchangeRows ? `<h2>3. Confirmed Exchange Deposit Infrastructure Identified in This Case</h2>
-  <p style="font-size:12px; color:#444;">Exchange-operated wallets confirmed elsewhere in the broader case network — not all are necessarily hop-verified connected to this specific theft's funds. Each is a candidate target for a preservation request (18 U.S.C. &sect; 2703(f)) and a records request (18 U.S.C. &sect; 2703(c)(2)) if a direct link to these funds is confirmed through further tracing.</p>
-  <table class="data-table"><tr><th>Address</th><th>Note</th></tr>${exchangeRows}</table>` : ""}
-  <h2>4. What Your Agency / Prosecutor Will Typically Need to Prepare</h2>
-  <p style="font-size:12px; color:#444;">Informational checklist only — confirm actual requirements with your jurisdiction's legal counsel before filing anything.</p>
-  <ul class="checklist">
-    <li>Officer/agent identification: government domain email, badge/ID number, direct callback number</li>
-    <li>Exact legal name of the exchange entity (e.g., "Coinbase, Inc.," not just "Coinbase") — verify current registered entity before filing</li>
-    <li>Statutory basis for the request (commonly 18 U.S.C. &sect; 2703(c)(2) for basic subscriber records; a 2703(d) order or warrant for contents)</li>
-    <li>Specific wallet addresses and TxIDs being referenced (Section 2 above)</li>
-    <li>Exact date range covering the relevant activity</li>
-    <li>Clear statement of records sought: account holder name, registration address, IP/session logs, linked funding sources (bank/card)</li>
-    <li>If time-sensitive: a separate 18 U.S.C. &sect; 2703(f) preservation request, sent ahead of the full subpoena, so records aren't purged in the meantime</li>
-    <li>Confirmation of the correct legal-service contact for the specific exchange (many publish a dedicated law-enforcement request portal or email)</li>
-  </ul>
-  <div class="footer-note">Generated from Wallet-Tracer case data. All addresses, hashes, and values should be independently re-verified on a public block explorer before inclusion in any legal filing. This tool performs no verification of legal sufficiency and offers no legal advice. wallet-scanner.app — free, open-source, runs entirely on the investigator's own device.</div>
+  ${hopHtml}${splitHtml}
+  <h2>3. Machine-Readable Attachment (Verified Custody Chain)</h2>
+  <p style="font-size:12px; color:#444;">Plain CSV — the format exchange compliance teams have specifically asked for so their own systems can cross-reference logs directly, rather than re-typing addresses out of a PDF.</p>
+  <div class="csv-block">${escapeHtml(csvText)}</div>
+  <div class="footer-note">Generated from Wallet-Tracer case data. All addresses, hashes, and values should be independently re-verified on a public block explorer before inclusion in any legal filing. wallet-scanner.app — free, open-source, runs entirely on the investigator's own device.</div>
 </body></html>`;
 
     const blob = new Blob([doc], { type: "text/html" });
