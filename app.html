@@ -727,6 +727,11 @@
         <h4>6. Chain-of-custody tracing follows money. It will not find who's in charge of a contract — that takes a separate, deliberate step.</h4>
         <p>The instinct on a known phishing act is to trace the stolen funds and run Contract Intel on the <i>deployer</i> of the vault/drainer contract — and that's correct, but it's not the whole picture. Every contract sitting on an edge of that custody chain — every wallet the funds merely passed through, not just the original trap — can itself have an owner or admin, and <b>ownership almost never shows up as a transaction</b>. It's often set once at deployment, stored silently in the contract's internal state, with no transfer to see. Money-tracing will never surface it, no matter how thoroughly you scan — it's a fundamentally different question ("who controls this?") from the one transaction graphs answer ("where did the money go?"). Run <b>Contract Intel</b> on every contract-type node touching your custody chain, not only the one that looks like the obvious center of the case — a "boring" secondary contract can turn out to be the one with the real owner behind it.</p>
       </div>
+
+      <div class="rule warn">
+        <h4>7. A custody chain moves forward in time. A hop dated before the theft doesn't belong in it, no matter how real the transaction is.</h4>
+        <p>A wallet can be a genuine, active part of a criminal operation's infrastructure and STILL be the wrong hop for one specific case — if the dated evidence you have for it predates the theft, it's necessarily some other batch of funds moving through the same pipeline, not this one. This tool's own amount-anchored tracing (the theft anchor's token/amount/date, set from the auto-trace panel) already filters this out automatically when following stolen value hop by hop. That protection does NOT extend to manual work — hand-picking an edge's sample transactions, building a report by inspecting raw data directly, or citing a "representative hash" for a busy pipeline. Every single date used as evidence for a specific theft must be individually checked against that theft's date before it goes in front of anyone else, especially in anything meant for a filing or referral.</p>
+      </div>
     </div>
   </details>
 
@@ -8595,6 +8600,31 @@ async function investigate(rawAddress, chainOverride, fetchOpts) {
   }
 }
 
+// Replaces window.confirm() for the large-hub trim decision. A native
+// confirm() can only ever say "OK" / "Cancel" — no way to relabel those
+// buttons — which made "Cancel" read as if it cancels the whole scan,
+// when it actually means "keep every counterparty, don't trim." Custom
+// modal, explicit button text, no ambiguity about which choice does what.
+function promptTrimHubConfirm(shortAddr, totalCount, cap) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
+    overlay.innerHTML = `
+      <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:440px;width:100%;padding:20px;">
+        <h3 style="margin:0 0 10px;font-size:14px;color:var(--text);">${escapeHtml(shortAddr)} has ${totalCount.toLocaleString()} counterparties</h3>
+        <p style="margin:0 0 16px;font-size:12.5px;color:var(--text-2);">Token-contract / exchange-hot-wallet scale. Adding all of them can crash mobile browsers and may not restore from backup on this device.</p>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <button type="button" id="__trimYes" class="small" style="border-color:var(--brass); color:var(--brass);">Add only the ${cap.toLocaleString()} most active (recommended)</button>
+          <button type="button" id="__trimNo" class="small ghost" style="border-color:#c0392b; color:#e08a7a;">Keep All ${totalCount.toLocaleString()} (may crash)</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const cleanup = (val) => { overlay.remove(); resolve(val); };
+    overlay.querySelector("#__trimYes").onclick = () => cleanup(true);
+    overlay.querySelector("#__trimNo").onclick = () => cleanup(false);
+  });
+}
+
 async function investigateInner(rawAddress, chainOverride, fetchOpts) {
   const addr = (rawAddress || "").trim();
   const useChain = chainOverride || state.chainKey;
@@ -8763,9 +8793,7 @@ async function investigateInner(rawAddress, chainOverride, fetchOpts) {
       if (hubRoot0 && hubRoot0.hubTruncated) delete hubRoot0.hubTruncated; // re-scan came in under the cap — rollup note no longer applies
     }
     if (cps.length > HUB_SCAN_WRITE_CAP) {
-      const trim = window.confirm(
-        `${short(addr)} has ${cps.length.toLocaleString()} counterparties — token-contract / exchange-hot-wallet scale.\n\nOK: add only the ${HUB_SCAN_WRITE_CAP.toLocaleString()} most active to the map (the rest are recorded as a rollup count on this wallet).\n\nCancel: add ALL ${cps.length.toLocaleString()} — networks this size can crash mobile browsers and may not restore from backup on this device.`
-      );
+      const trim = await promptTrimHubConfirm(short(addr), cps.length, HUB_SCAN_WRITE_CAP);
       if (trim) {
         const ranked = [...cps].sort((x, y) =>
           ((y.txCount || 0) - (x.txCount || 0)) ||
