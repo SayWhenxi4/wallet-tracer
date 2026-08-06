@@ -433,8 +433,15 @@
     font-family: var(--display); font-size: 16px; font-weight: 600; color: var(--text); user-select: none;
   }
   .method-summary::-webkit-details-marker { display: none; }
-  .method-summary::before { content: "▸"; color: var(--brass); font-size: 13px; transition: transform .15s ease; }
+  .method-summary::before {
+    content: "▸"; color: var(--brass); font-size: 20px; font-weight: 700;
+    transition: transform .15s ease, color .15s ease;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; flex: none;
+  }
   details[open] .method-summary::before { transform: rotate(90deg); }
+  .method-summary:hover::before { color: var(--brass-bright, #f0c96e); transform: scale(1.15); }
+  details[open] .method-summary:hover::before { transform: rotate(90deg) scale(1.15); }
   .method-summary .tagbadge {
     margin-left: auto; font-family: var(--data); font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
     color: var(--brass); border: 1px solid var(--brass); border-radius: 999px; padding: 2px calc(9px - 0.1em) 2px 9px;
@@ -577,7 +584,7 @@
   <div class="main-grid empty" id="mainGrid" style="margin-bottom:20px;">
     <div class="graph-card">
       <div class="graph-header" id="controlsCollapseHeader" onclick="toggleControlsCollapse()" style="cursor:pointer; user-select:none;">
-        <h2 class="card-title"><span id="controlsCollapseArrow" style="display:inline-block; margin-right:6px; font-family:var(--mono); color:var(--brass); font-weight:normal;">&#9660;</span>Network map</h2>
+        <h2 class="card-title"><span id="controlsCollapseArrow" style="display:inline-block; margin-right:6px; font-family:var(--mono); color:var(--brass); font-weight:700; font-size:20px;">&#9660;</span>Network map</h2>
       </div>
       <div id="controlsCollapseBody">
       <div class="legend" id="legend"></div>
@@ -588,16 +595,16 @@
       </div>
       <div class="filter-row" id="noiseFilterRow" style="display:flex; align-items:center; gap:8px; margin:3px 0; flex-wrap:wrap;">
         <label for="minValueInput" style="font-size:9.5px; color:#97a4bb; white-space:nowrap;">Hide wallets with total value &lt;</label>
-        <input type="number" id="minValueInput" min="0" step="any" placeholder="0" style="width:70px; font-size:11px; padding:3px 6px;">
+        <input type="number" id="minValueInput" min="0" step="any" placeholder="0" value="9999999999" style="width:70px; font-size:11px; padding:3px 6px;">
         <label style="font-size:9.5px; color:#97a4bb; white-space:nowrap; display:flex; align-items:center; gap:5px; margin-left:6px;">
-          <input type="checkbox" id="flaggedOnlyToggle" style="margin:0;">
+          <input type="checkbox" id="flaggedOnlyToggle" style="margin:0;" checked>
           Show only wallets connected to flagged network
         </label>
         <label style="font-size:9.5px; color:#97a4bb; white-space:nowrap; display:flex; align-items:center; gap:5px; margin-left:6px;">
           <input type="checkbox" id="boundaryToggle" style="margin:0;" checked>
           Ring unfetched leads with &ge;
         </label>
-        <input type="number" id="boundaryMinInput" min="0" step="any" placeholder="10000" style="width:70px; font-size:11px; padding:3px 6px;">
+        <input type="number" id="boundaryMinInput" min="0" step="any" placeholder="10000" value="9999999999" style="width:70px; font-size:11px; padding:3px 6px;">
         <span class="card-hint" style="display:none;">"Connected to flagged network" = Suspected Scam / root / investigated wallets plus their direct counterparties — except counterparties of a huge hub (&gt;50 connections), which are left out so one exchange-scale wallet can't pull in the whole graph. "Ring unfetched leads" marks wallets a traced wallet paid but whose own history was never fetched — a dashed amber ring means DATA PENDING, not a dead end. Only leads that received at least the threshold value are ringed, so the map isn't covered in rings; lower it to see smaller leads.</span>
       </div>
       <div class="filter-row" id="layoutModeRow" style="display:flex; align-items:center; gap:8px; margin:3px 0; flex-wrap:wrap;">
@@ -1454,7 +1461,7 @@ const STORAGE_KEY = "wallet-network-v1";
 // confirm which build is running. Bumped whenever features land.
 const WT_BUILD = "2026-07-26 · pathfinder + exchange-registry";
 try { console.info("Wallet-Tracer build:", WT_BUILD); } catch (e) {}
-const state = { chainKey: "flare", nodes: [], edges: [], selectedAddress: null, loading: false, minTxFilter: 2, minValueFilter: 0, showBoundary: true, boundaryMinValue: 10000, flaggedConnectedOnly: false, deployedContracts: [], deployerCursors: {}, timeline: [], pathfinder: null };
+const state = { chainKey: "flare", nodes: [], edges: [], selectedAddress: null, loading: false, minTxFilter: 2, minValueFilter: 9999999999, showBoundary: true, boundaryMinValue: 9999999999, flaggedConnectedOnly: true, deployedContracts: [], deployerCursors: {}, timeline: [], pathfinder: null };
 
 // ---------- BREAKPOINT custody-break registry: local cache + auto-sync ----------
 // Read-only from Wallet-Tracer's side. The registry itself is only ever
@@ -4322,9 +4329,18 @@ function promptContractDetails(defaultLabel) {
     const cleanup = (val) => { overlay.remove(); resolve(val); };
     overlay.querySelector("#__ccCancel").onclick = () => cleanup(null);
     overlay.querySelector("#__ccOk").onclick = () => {
-      const label = overlay.querySelector("#__ccLabel").value.trim();
+      const labelEl = overlay.querySelector("#__ccLabel");
+      const label = labelEl.value.trim();
       const type = overlay.querySelector("#__ccType").value;
-      if (!label) return;
+      if (!label) {
+        // Previously silently did nothing here — no border change, no
+        // message, nothing — which from the user's side is indistinguishable
+        // from the button being broken. Now it says exactly what's wrong.
+        labelEl.style.borderColor = "#c0392b";
+        labelEl.placeholder = "Name required — e.g. USDC (Circle)";
+        labelEl.focus();
+        return;
+      }
       cleanup({ label, type });
     };
     const labelInput = overlay.querySelector("#__ccLabel");
@@ -4494,7 +4510,15 @@ function openClusterAnalysisModal() {
   // Audit pass: run the same conflict detector against every wallet already
   // tagged "scam" — this is what closes the loop on wallets that got
   // mis-tagged BEFORE this guard existed, not just ones tagged from now on.
-  const scamNodes = state.nodes.filter(n => n.category === "scam");
+  // auditDismissed excludes wallets the investigator has explicitly reviewed
+  // and confirmed correct despite matching the pattern — a well-run, massive
+  // scam consolidation hub looks structurally identical to a miscategorized
+  // real exchange (both show high-volume "hub" behavior; that's inherent to
+  // consolidating funds from many sources, legitimate or not), so this check
+  // can never fully tell them apart on its own. The fix isn't a smarter
+  // heuristic, it's giving the investigator's own confirmed judgment the
+  // final word once they've actually looked.
+  const scamNodes = state.nodes.filter(n => n.category === "scam" && !n.auditDismissed);
   const flaggedExisting = scamNodes
     .map(n => ({ node: n, conflict: detectScamTagConflict(n) }))
     .filter(x => x.conflict)
@@ -4503,7 +4527,7 @@ function openClusterAnalysisModal() {
   const auditHtml = flaggedExisting.length ? `
     <div style="border:2px solid #c0392b; background:rgba(192,57,43,0.08); border-radius:6px; padding:12px; margin-bottom:16px;">
       <span class="ai-badge" style="background:rgba(192,57,43,0.2); color:#e08a7a;">⚠ ${flaggedExisting.length} ALREADY-TAGGED WALLET(S) MAY BE MISCATEGORIZED</span>
-      <p class="flag-text" style="margin-top:6px; font-size:12px;">These are already marked Suspected Scam, but show the same pattern as a real high-throughput service, not a purpose-built scam wallet — this can badly inflate any aggregate total (stolen-funds figures, exposure percentages) if left as-is.</p>
+      <p class="flag-text" style="margin-top:6px; font-size:12px;">These are already marked Suspected Scam, but show the same pattern as a real high-throughput service, not a purpose-built scam wallet — this can badly inflate any aggregate total (stolen-funds figures, exposure percentages) if left as-is. If you've already verified one of these is correct, dismiss it — it won't be flagged again.</p>
       <table style="width:100%; border-collapse:collapse; margin-top:8px;">
         <thead><tr style="color:var(--text-3); font-size:10.5px; text-align:left;"><th style="padding:4px 6px;">Address</th><th style="padding:4px 6px;">Why flagged</th><th></th></tr></thead>
         <tbody>
@@ -4513,6 +4537,7 @@ function openClusterAnalysisModal() {
               <td style="padding:4px 6px; font-size:11px; color:var(--text-2); vertical-align:top;">${escapeHtml(conflict)}</td>
               <td style="padding:4px 6px; white-space:nowrap; vertical-align:top;">
                 <button type="button" class="small ca-view-btn" data-addr="${node.address.toLowerCase()}" style="font-size:10.5px; padding:2px 8px;">View →</button>
+                <button type="button" class="small ca-dismiss-btn" data-addr="${node.address.toLowerCase()}" style="font-size:10.5px; padding:2px 8px; border-color:#5fd98a; color:#5fd98a;" title="I've reviewed this — it's correctly tagged. Stop flagging it.">This is correct ✓</button>
                 <button type="button" class="small ca-revert-btn" data-addr="${node.address.toLowerCase()}" style="font-size:10.5px; padding:2px 8px; border-color:#e0b04a; color:#e0b04a;">Revert to unclassified</button>
               </td>
             </tr>`).join("")}
@@ -4564,6 +4589,22 @@ function openClusterAnalysisModal() {
       openClusterAnalysisModal(); // re-open with the updated list
     });
   });
+  overlay.querySelectorAll(".ca-dismiss-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const addr = btn.getAttribute("data-addr");
+      const node = nodeIndex().get(addr);
+      if (!node) return;
+      // No category change at all — this only suppresses the flag itself.
+      // The wallet stays exactly as tagged; this just records that a human
+      // has actually looked and confirmed it, so the audit stops re-raising
+      // something already reviewed and settled.
+      node.auditDismissed = true;
+      markNodeDirty(node.address);
+      scheduleSave();
+      overlay.remove();
+      openClusterAnalysisModal(); // re-open with the updated list
+    });
+  });
   overlay.querySelectorAll(".ca-scan-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
       const addr = btn.getAttribute("data-addr");
@@ -4573,14 +4614,16 @@ function openClusterAnalysisModal() {
       btn.textContent = "Scanning…";
       try {
         await investigate(addr, chain);
-        // investigate() already updates state + re-renders the main app;
-        // closing the modal and focusing the wallet lets the user see the
-        // freshly-fetched data immediately instead of wondering whether
-        // anything happened.
-        state.selectedAddress = addr;
-        overlay.remove();
-        if (typeof graphFocusOn === "function" && graphFocusOn) graphFocusOn(addr);
+        // Stays open and refreshes in place instead of closing — the whole
+        // point of this list is working through several candidates in a
+        // row, and closing after every single scan meant re-opening
+        // Analyze Clusters and re-finding your place each time. renderAll()
+        // still keeps the underlying map in sync in the background; the
+        // modal rebuild just shows this row's status flip to "✓ scanned"
+        // so you can immediately move to the next one in the list.
         renderAll();
+        overlay.remove();
+        openClusterAnalysisModal();
       } catch (err) {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -8498,7 +8541,37 @@ function restoreBackup(file) {
 }
 
 // ---------- Investigation ----------
+// Scans are queued, not rejected and not run concurrently. Two scans
+// running at once would both be calling nodeIndex()/upsertNode() — each
+// scan's node additions invalidate the OTHER scan's memoized index (see
+// nodeIndex() above), forcing repeated full O(n) rebuilds of a
+// potentially huge array in a tight window. That's real resource
+// exhaustion, not just a race — and it gets worse, not better, the faster
+// several scans overlap, which is exactly what rapid light-scanning does.
+// A queue keeps the fast, click-through-many-dots workflow completely
+// intact from the user's side (nothing rejected, nothing waited-for
+// manually) while guaranteeing only one scan actually touches shared
+// state at a time underneath it.
+let scanInFlight = false;
+const scanQueue = [];
+
 async function investigate(rawAddress, chainOverride, fetchOpts) {
+  if (scanInFlight) {
+    return new Promise((resolve) => {
+      scanQueue.push({ rawAddress, chainOverride, fetchOpts, resolve });
+    });
+  }
+  scanInFlight = true;
+  try {
+    return await investigateInner(rawAddress, chainOverride, fetchOpts);
+  } finally {
+    scanInFlight = false;
+    const next = scanQueue.shift();
+    if (next) investigate(next.rawAddress, next.chainOverride, next.fetchOpts).then(next.resolve);
+  }
+}
+
+async function investigateInner(rawAddress, chainOverride, fetchOpts) {
   const addr = (rawAddress || "").trim();
   const useChain = chainOverride || state.chainKey;
   const kind = chainKind(useChain);
@@ -11301,6 +11374,11 @@ function initGraph2D() {
     }
 
     // Hold-to-scan progress ring: fills clockwise around the pressed bubble.
+    // Deliberately green, not the same brass/yellow as the dot itself — the
+    // whole point is to make fill progress obvious at a glance, and a ring
+    // the same color as what it's drawn around was nearly invisible while
+    // filling. Green reads as "actively working," distinct from the dot
+    // underneath it regardless of that dot's own category color.
     if (pressKey && pressTimer) {
       const p = positions.get(pressKey);
       const pn = nodeIndex().get(pressKey);
@@ -11308,7 +11386,7 @@ function initGraph2D() {
         const frac = Math.min(1, (performance.now() - pressStart) / LONG_PRESS_MS);
         ctx.beginPath();
         ctx.arc(p.x, p.y, drawRadius(pn) + 7 / zoom, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
-        ctx.strokeStyle = "#e8c14a"; // --brass (canvas can't resolve CSS variables)
+        ctx.strokeStyle = "#35d07f"; // --green (canvas can't resolve CSS variables)
         ctx.lineWidth = 4 / zoom;
         ctx.lineCap = "round";
         ctx.stroke();
