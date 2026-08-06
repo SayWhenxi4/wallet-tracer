@@ -5167,12 +5167,14 @@ function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveNe
 let pendingRestore = null;
 async function loadNetwork() {
   const statusEl = document.getElementById("saveStatus");
+  let recoveredSavedAt = null;
   try {
     let parsed = null;
     // v2 slab format first
     try {
       const manifest = await idbGet(STORAGE_KEY + ":manifest");
       if (manifest && manifest.v === 2) {
+        recoveredSavedAt = manifest.savedAt || null;
         const nodes = [], edges = [];
         for (let i = 0; i < (manifest.slabs || SLAB_COUNT); i++) {
           const ns = await idbGet(STORAGE_KEY + ":n" + i); if (Array.isArray(ns)) nodes.push(...ns);
@@ -5182,7 +5184,8 @@ async function loadNetwork() {
         if (nodes.length) parsed = { nodes, edges, deployedContracts: meta.deployedContracts, deployerCursors: meta.deployerCursors, timeline: meta.timeline, xrplTags: meta.xrplTags };
       }
     } catch {}
-    // legacy single-blob record
+    // legacy single-blob record — no timestamp available, so this always
+    // falls through to the manual prompt below (gapMs computes as Infinity).
     if (!parsed) { try { parsed = await idbGet(STORAGE_KEY); } catch {} }
     if (!parsed) {
       // Migration path: sessions saved by older localStorage-based versions.
@@ -5191,6 +5194,27 @@ async function loadNetwork() {
     }
     if (parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges) && parsed.nodes.length) {
       pendingRestore = parsed;
+      // iOS PWAs (added to the home screen) fully reload the page when an
+      // external link — a block-explorer hyperlink, for instance — gets
+      // opened and then closed, even with target="_blank" set: WebKit's
+      // standalone display mode doesn't reliably honor it and just
+      // navigates the single app window away, then back to a fresh reload.
+      // That's a real, involuntary interruption of a session that was ALIVE
+      // seconds ago — completely different from actually opening the app
+      // fresh after being away for hours or days, which is what the
+      // deliberate manual "Resume session" prompt below exists to handle
+      // safely (never silently clobber what might be an intentional fresh
+      // start). A short gap since the last save is what tells these two
+      // apart: only a session that was saved moments ago restores itself
+      // automatically; anything older still asks first, exactly as before.
+      const AUTO_RESTORE_WINDOW_MS = 3 * 60 * 1000; // 3 minutes
+      const savedAtMs = recoveredSavedAt ? Date.parse(recoveredSavedAt) : NaN;
+      const gapMs = isFinite(savedAtMs) ? (Date.now() - savedAtMs) : Infinity;
+      if (gapMs >= 0 && gapMs < AUTO_RESTORE_WINDOW_MS) {
+        applyPendingRestore();
+        statusEl.textContent = `Restored ${parsed.nodes.length} wallet(s) — session continued after ${Math.round(gapMs / 1000)}s away.`;
+        return;
+      }
       statusEl.textContent = "Previous session found on this device";
       const bar = document.getElementById("resumeBar");
       document.getElementById("resumeText").textContent =
