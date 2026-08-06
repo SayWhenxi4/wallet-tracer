@@ -883,6 +883,7 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
         <button class="small backup-btn" id="downloadGzBtn">Download compressed (.json.gz)</button>
         <button class="small backup-btn" id="restoreBtn" style="border-color:#e8c14a; color:#f3d878;">Restore backup</button>
         <button class="small backup-btn" id="exportBoundaryBtn" style="border-color:#c9962a; color:#e0b04a;" title="Packages everything you've marked as exchange or verified contract into a file BREAKPOINT can import directly">Export verified infrastructure for BREAKPOINT</button>
+        <button class="small backup-btn" id="generateLEPacketBtn" style="border-color:#b00020; color:#e08a7a;" title="Builds a formatted evidence packet for law enforcement / exchange compliance from the current case's Theft Anchor. Requires a wallet with a saved theft token/amount/date.">Generate Law Enforcement Exhibit</button>
         <button class="small backup-btn" id="aiSettingsBtn" style="border-color:#4f9dff; color:#7fb4ff;" title="Bring your own Anthropic API key. Calls go directly from this device to api.anthropic.com — nothing passes through any Wallet-Tracer server.">AI Analysis — Settings 🤖</button>
         <button class="small backup-btn" id="analyzeClustersBtn" style="background:rgba(192,57,43,0.22); border-color:#c0392b; color:#ffb3a7; font-weight:600;" title="Free, deterministic graph analysis — runs entirely in your browser, no API calls, no cost. Finds which flagged wallets are structurally connected vs. separate, and ranks candidate wallets worth a closer look.">Analyze Clusters 🕸️</button>
       </span>
@@ -6587,7 +6588,7 @@ function fallbackCopy(text, done) {
   } catch (e) { showError("Couldn't copy to clipboard on this device — the path is in the timeline entry instead."); }
 }
 
-function generatePathExhibit(startAddr, endAddr, amountStr) {
+function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
   try {
   const start = (startAddr || "").trim();
   if (!isAnyChainAddress(start)) { showError("Enter a valid start wallet address for the chain-of-custody path (0x… EVM, r… XRPL, or 1…/3…/bc1… Bitcoin)."); return; }
@@ -6955,6 +6956,13 @@ function generatePathExhibit(startAddr, endAddr, amountStr) {
   </div>`;
   } catch (e) { /* fall back to narrative-only exhibit below */ }
 
+  // Everything above this line is the exact same computation that already
+  // produces a correct, evidence-grade chain-of-custody exhibit. Reuse it
+  // directly instead of recomputing any of it a second time, differently.
+  if (opts && opts.returnDataOnly) {
+    return { path, steps, splitsSection, diagramHtml, conclusion, splitInfo, splitRoutes };
+  }
+
   const doc = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8">
 <meta name="color-scheme" content="only light">
@@ -7032,6 +7040,123 @@ function generatePathExhibit(startAddr, endAddr, amountStr) {
   a.click(); URL.revokeObjectURL(url);
   } catch (err) {
     showError("Couldn't generate the chain-of-custody exhibit: " + (err && err.message ? err.message : err) + ". Make sure the origin wallet is traced and connected to an endpoint.");
+  }
+}
+
+// Generates a law-enforcement / exchange-compliance evidence packet:
+// case summary, a hash-and-timestamp-verified custody chain, the confirmed
+// exchange infrastructure in the current case, a machine-readable CSV
+// attachment, and an informational (non-legal-advice) filing checklist.
+//
+// Deliberately reuses traceByAmount() and detectSplitConverge() rather than
+// walking the graph itself — those are the exact functions that already
+// enforce the date-fidelity rule (Rule 7: a custody chain moves forward in
+// time; nothing dated before the theft anchor can appear in the chain).
+// Building this as a thin skin on top of already-verified logic means the
+// mistake that happened building this packet by hand once — including a
+// pipeline whose sampled transactions predated the theft by a month —
+// cannot happen here: the underlying trace already refuses those hops.
+function generateLawEnforcementPacket(startAddr) {
+  try {
+    const start = (startAddr || "").trim();
+    if (!isAnyChainAddress(start)) { showError("Enter a valid victim/origin wallet address for the law-enforcement packet."); return; }
+    const originNode = nodeIndex().get(start.toLowerCase());
+    const anchor = originNode && originNode.traceAnchor;
+    if (!anchor || !(Number(anchor.amount) > 0) || !anchor.date) {
+      showError("This wallet needs a saved Theft Anchor (token, amount, AND date) before generating a law-enforcement packet — set one in the side panel. The date is what keeps pre-theft transactions out of the exhibit.");
+      return;
+    }
+
+    // Reuses generatePathExhibit's own computation directly — the exact
+    // same proven logic that already produces a correct chain-of-custody
+    // exhibit (tracing, split/converge detection, exchange routing, the
+    // diagram, all of it). This function only adds the law-enforcement-
+    // specific framing around that already-correct content: a disclaimer,
+    // a confirmed-exchange appendix, a CSV attachment, and a filing
+    // checklist. Nothing about the underlying trace is reimplemented here.
+    const data = generatePathExhibit(start, null, String(anchor.amount), { returnDataOnly: true });
+    if (!data) return; // generatePathExhibit already called showError with the specific reason
+
+    const exchanges = state.nodes.filter(n => n.category === "exchange");
+    const exchangeRows = exchanges.map(e =>
+      `<tr><td class="mono">${escapeHtml(e.address)}</td><td>${escapeHtml((e.notes || "").split("\n")[0] || "")}</td></tr>`
+    ).join("");
+
+    const generated = new Date().toLocaleString(undefined, { dateStyle: "long", timeStyle: "short" });
+    const chainLabel = (CHAINS[originNode.chain] || {}).label || originNode.chain;
+
+    const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Wallet-Tracer — Law Enforcement Evidence Packet</title>
+<style>
+  :root { color-scheme: light; }
+  html { background: #ffffff; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #1a1a1a; background: #ffffff; margin: 0; max-width: 900px; margin: 0 auto; padding: 40px 32px 80px; line-height: 1.5; font-size: 13.5px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 34px 0 10px; border-bottom: 2px solid #1a1a1a; padding-bottom: 6px; }
+  .subtitle { color: #555; font-size: 12.5px; margin: 0 0 18px; }
+  .disclaimer { border: 2px solid #b00020; background: #fff5f5; padding: 14px 16px; margin: 18px 0; font-size: 12px; }
+  .disclaimer b { color: #b00020; }
+  .meta-table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 12.5px; }
+  .meta-table td { padding: 4px 8px; vertical-align: top; border-bottom: 1px solid #eee; }
+  .meta-table td:first-child { font-weight: bold; width: 220px; color: #444; }
+  .step { border-left: 4px solid #999; padding: 8px 0 8px 14px; margin: 10px 0; }
+  .role { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: #b8860b; font-weight: bold; margin-bottom: 3px; }
+  .addr { font-family: monospace; font-weight: bold; word-break: break-all; }
+  .val, .meta { font-size: 11.5px; color: #333; }
+  .arrow { text-align: center; color: #888; font-size: 16px; margin: 2px 0; }
+  table.data-table { width: 100%; border-collapse: collapse; font-size: 11px; margin: 10px 0; }
+  table.data-table th { background: #1a1a1a; color: #fff; text-align: left; padding: 5px 7px; }
+  table.data-table td { padding: 5px 7px; border-bottom: 1px solid #ddd; font-family: monospace; word-break: break-all; }
+  table.data-table tr:nth-child(even) { background: #f7f7f7; }
+  .checklist { list-style: none; padding: 0; }
+  .checklist li { padding: 4px 0 4px 24px; position: relative; }
+  .checklist li::before { content: "\\2610"; position: absolute; left: 0; font-size: 15px; }
+  .footer-note { margin-top: 50px; padding-top: 14px; border-top: 1px solid #ccc; font-size: 11px; color: #777; }
+</style></head><body>
+  <h1>Wallet-Tracer — Evidence Packet</h1>
+  <p class="subtitle">Prepared for referral to law enforcement / exchange compliance &middot; Generated ${generated}</p>
+  <div class="disclaimer">
+    <b>This is an evidence-formatting aid, not a legal instrument.</b> Nothing in this document is a subpoena, court order, or preservation demand, and it carries no legal authority on its own. The actual legal process (a subpoena, a 2703(d) order, a preservation letter under 18 U.S.C. &sect; 2703(f)) must still be drafted and issued by the appropriate legal authority. The chain below is this case's standard chain-of-custody exhibit output, unmodified — verify every address and transaction independently on a public block explorer before relying on it in any filing.
+  </div>
+  <h2>1. Case Summary</h2>
+  <table class="meta-table">
+    <tr><td>Chain</td><td>${escapeHtml(chainLabel)}</td></tr>
+    <tr><td>Theft date</td><td>${escapeHtml(anchor.date)}</td></tr>
+    <tr><td>Asset stolen</td><td>${escapeHtml(String(anchor.amount))} ${escapeHtml(anchor.token || "")}</td></tr>
+    <tr><td>Victim / origin wallet</td><td class="mono">${escapeHtml(start)}</td></tr>
+    <tr><td>Investigation tool</td><td>Wallet-Tracer (open-source, self-hosted blockchain forensics) &mdash; wallet-scanner.app</td></tr>
+    <tr><td>Case network size</td><td>${state.nodes.length.toLocaleString()} wallets mapped, ${state.edges.length.toLocaleString()} traced connections, ${exchanges.length} confirmed exchange deposit point(s)</td></tr>
+  </table>
+  <h2>2. Verified Custody Chain</h2>
+  ${data.diagramHtml}
+  ${data.steps}
+  ${data.splitsSection}
+  <div style="margin:20px 0; padding:14px; background:#f7f7f7; border-radius:6px; font-size:12.5px;"><b>Conclusion.</b> ${data.conclusion}</div>
+  ${exchangeRows ? `<h2>3. Confirmed Exchange Deposit Infrastructure Identified in This Case</h2>
+  <p style="font-size:12px; color:#444;">Exchange-operated wallets confirmed elsewhere in the broader case network — not all are necessarily hop-verified connected to this specific theft's funds. Each is a candidate target for a preservation request (18 U.S.C. &sect; 2703(f)) and a records request (18 U.S.C. &sect; 2703(c)(2)) if a direct link to these funds is confirmed through further tracing.</p>
+  <table class="data-table"><tr><th>Address</th><th>Note</th></tr>${exchangeRows}</table>` : ""}
+  <h2>4. What Your Agency / Prosecutor Will Typically Need to Prepare</h2>
+  <p style="font-size:12px; color:#444;">Informational checklist only — confirm actual requirements with your jurisdiction's legal counsel before filing anything.</p>
+  <ul class="checklist">
+    <li>Officer/agent identification: government domain email, badge/ID number, direct callback number</li>
+    <li>Exact legal name of the exchange entity (e.g., "Coinbase, Inc.," not just "Coinbase") — verify current registered entity before filing</li>
+    <li>Statutory basis for the request (commonly 18 U.S.C. &sect; 2703(c)(2) for basic subscriber records; a 2703(d) order or warrant for contents)</li>
+    <li>Specific wallet addresses and TxIDs being referenced (Section 2 above)</li>
+    <li>Exact date range covering the relevant activity</li>
+    <li>Clear statement of records sought: account holder name, registration address, IP/session logs, linked funding sources (bank/card)</li>
+    <li>If time-sensitive: a separate 18 U.S.C. &sect; 2703(f) preservation request, sent ahead of the full subpoena, so records aren't purged in the meantime</li>
+    <li>Confirmation of the correct legal-service contact for the specific exchange (many publish a dedicated law-enforcement request portal or email)</li>
+  </ul>
+  <div class="footer-note">Generated from Wallet-Tracer case data. All addresses, hashes, and values should be independently re-verified on a public block explorer before inclusion in any legal filing. This tool performs no verification of legal sufficiency and offers no legal advice. wallet-scanner.app — free, open-source, runs entirely on the investigator's own device.</div>
+</body></html>`;
+
+    const blob = new Blob([doc], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().replace(/:/g, "-").replace(/\..+/, "").replace("T", "_");
+    a.href = url; a.download = `LE-evidence-packet_${ts}.html`;
+    a.click(); URL.revokeObjectURL(url);
+  } catch (err) {
+    showError("Couldn't generate the law-enforcement packet: " + (err && err.message ? err.message : err));
   }
 }
 
@@ -11683,6 +11808,14 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("downloadBtn").addEventListener("click", () => { downloadBackup(false); });
   { const gz = document.getElementById("downloadGzBtn"); if (gz) gz.addEventListener("click", () => { downloadBackup(true).catch(e => showError("Compressed backup failed: " + (e && e.message ? e.message : e))); }); }
   { const eb = document.getElementById("exportBoundaryBtn"); if (eb) eb.addEventListener("click", exportBoundaryRegistryForBreakpoint); }
+  { const lep = document.getElementById("generateLEPacketBtn"); if (lep) lep.addEventListener("click", () => {
+      const selected = state.selectedAddress ? nodeIndex().get(state.selectedAddress.toLowerCase()) : null;
+      let target = (selected && selected.traceAnchor) ? selected : null;
+      if (!target) target = state.nodes.find(n => n.traceAnchor && Number(n.traceAnchor.amount) > 0 && n.traceAnchor.date);
+      if (!target) { showError("No wallet in this case has a saved Theft Anchor yet. Select the victim wallet, set its Theft Anchor (token/amount/date) in the side panel, then try again."); return; }
+      generateLawEnforcementPacket(target.address);
+    });
+  }
   { const ai = document.getElementById("aiSettingsBtn"); if (ai) ai.addEventListener("click", openAiSettingsModal); }
   { const cb = document.getElementById("analyzeClustersBtn"); if (cb) cb.addEventListener("click", openClusterAnalysisModal); }
   document.getElementById("exhibitFlaggedBtn").addEventListener("click", () => generateExhibit(true));
