@@ -882,7 +882,9 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
         <button class="small backup-btn" id="downloadBtn">Download backup (.json)</button>
         <button class="small backup-btn" id="downloadGzBtn">Download compressed (.json.gz)</button>
         <button class="small backup-btn" id="restoreBtn" style="border-color:#e8c14a; color:#f3d878;">Restore backup</button>
-        <button class="small backup-btn" id="exportBoundaryBtn" style="border-color:#c9962a; color:#e0b04a;" title="Packages everything you've marked as exchange or verified contract into a file BREAKPOINT can import directly">Export verified infrastructure for BREAKPOINT</button>
+        <button class="small backup-btn" id="bulkConfirmInfraBtn" style="border-color:#c9962a; color:#e0b04a;" title="Reviews every currently-loaded node that already has a real explorer-provided name (bridges, DEX routers, token contracts) but isn't confirmed yet, and lets you confirm them as a batch instead of one node at a time.">Bulk-confirm infrastructure…</button>
+        <button class="small backup-btn" id="bulkConfirmScamBtn" style="border-color:#c0392b; color:#e08a7a;" title="Reviews every wallet already tagged Suspected Scam in the currently loaded map that hasn't reached the durable cross-case registry yet (e.g. tagged before this feature existed, or loaded from an older backup), and syncs them as a batch.">Bulk-confirm scam wallets…</button>
+        <button class="small backup-btn" id="exportBoundaryBtn" style="border-color:#c9962a; color:#e0b04a;" title="Packages everything you've marked as exchange, verified contract, or confirmed scam into a file BREAKPOINT can import directly">Export to BREAKPOINT</button>
         <button class="small backup-btn" id="generateLEPacketBtn" style="border-color:#b00020; color:#e08a7a;" title="Builds a formatted evidence packet for law enforcement / exchange compliance from the current case's Theft Anchor. Requires a wallet with a saved theft token/amount/date.">Generate Law Enforcement Exhibit</button>
         <button class="small backup-btn" id="aiSettingsBtn" style="border-color:#4f9dff; color:#7fb4ff;" title="Bring your own Anthropic API key. Calls go directly from this device to api.anthropic.com — nothing passes through any Wallet-Tracer server.">AI Analysis — Settings 🤖</button>
         <button class="small backup-btn" id="analyzeClustersBtn" style="background:rgba(192,57,43,0.22); border-color:#c0392b; color:#ffb3a7; font-weight:600;" title="Free, deterministic graph analysis — runs entirely in your browser, no API calls, no cost. Finds which flagged wallets are structurally connected vs. separate, and ranks candidate wallets worth a closer look.">Analyze Clusters 🕸️</button>
@@ -1483,7 +1485,14 @@ const BOUNDARY_RESYNC_MS = 5 * 60 * 1000; // re-check the master file for change
 let boundaryDb = null;
 let boundaryMasterHandle = null;
 const FS_ACCESS_SUPPORTED_BOUNDARY = typeof window !== "undefined" && "showOpenFilePicker" in window;
-const BOUNDARY_TYPE_TO_CATEGORY = { bridge: "router", mixer: "mixer", privacy_pool: "mixer", router: "router", exchange: "exchange", token_contract: "contract", dex: "router" };
+// "scam" deliberately maps to category "scam", not "router" like the other
+// types — this is the one boundary type that is NOT custody infrastructure.
+// See the special-case in the boundary-check block (search "type === \"scam\""
+// a few thousand lines down): a scam hit enriches the node the same way the
+// others do, but explicitly skips the inFetched/outFetched lock and the
+// early return, because the whole point of following a scam wallet is
+// continuing to scan it forward, not treating it as a wall.
+const BOUNDARY_TYPE_TO_CATEGORY = { bridge: "router", mixer: "mixer", privacy_pool: "mixer", router: "router", exchange: "exchange", token_contract: "contract", dex: "router", scam: "scam" };
 // Not every boundary hit means the same thing. A bridge/mixer genuinely
 // breaks the on-chain link (needs correlation techniques to pick back up).
 // An exchange is a wall for a different reason (thousands of unrelated
@@ -1491,6 +1500,8 @@ const BOUNDARY_TYPE_TO_CATEGORY = { bridge: "router", mixer: "mixer", privacy_po
 // contract or DEX router isn't a custody point at all — it's protocol
 // infrastructure that happens to show up as a "to:" address; the actual
 // trace continuation is the wallet that called it, not the contract.
+// A scam wallet is the opposite of a boundary — it's the thing being
+// followed, not a point where following stops.
 const BOUNDARY_TYPE_GUIDANCE = {
   bridge: "Custody-break boundary — on-chain trail stops here; continuing requires cross-chain correlation (timing + amount + fingerprint), not further explorer scanning.",
   mixer: "Custody-break boundary — on-chain trail stops here; linking a specific deposit to a specific withdrawal needs off-chain/timing correlation, not further explorer scanning of this contract.",
@@ -1499,6 +1510,7 @@ const BOUNDARY_TYPE_GUIDANCE = {
   exchange: "Known exchange wallet — shared by many unrelated depositors; its other counterparties are not connected to this case.",
   token_contract: "This is a verified TOKEN CONTRACT, not a wallet — it doesn't hold custody of funds in the traced sense. If tracing a specific transfer, follow the actual sender/receiver wallets, not this contract address.",
   dex: "Known DEX/swap router — high-traffic shared infrastructure used by many unrelated wallets. Its other counterparties are not connected to this case; the wallet that called this router is the real trace continuation point, not this contract.",
+  scam: "Confirmed scam wallet/contract from a past investigation (possibly on a different chain — same address, since EVM attacker EOAs reuse addresses across chains). NOT a custody-break boundary: this wallet was pre-tagged, but scanning continues normally so the trail can keep being followed forward.",
 };
 
 function computeBoundaryKey(chain, address) {
@@ -2622,6 +2634,30 @@ async function ensureAddressTag(node) {
     scheduleSave();
     return;
   }
+  // Same cross-case precedence as the two checks above, for the scam registry.
+  // A wallet already confirmed Suspected Scam in a past investigation — even
+  // on a different chain, since EVM attacker EOAs reuse the same address —
+  // gets pre-tagged the instant it's touched again, instead of relying on
+  // luck (an explorer's own scam-detection tag happening to exist) or the
+  // investigator happening to remember it from a previous case. Contract
+  // matches get a distinct note rather than silent full-confidence tagging,
+  // since a shared address across chains does NOT reliably mean the same
+  // deployment for a contract the way it does for an EOA (see the registry's
+  // own comment at its definition).
+  const registryScam = confirmedScamCache[registryKey];
+  if (registryScam && (!node.category || node.category === "unclassified")) {
+    node.category = "scam";
+    node.manualCategory = true; // this WAS a human decision — just made in an earlier case
+    const crossChainNote = registryScam.isContract
+      ? `Address previously confirmed Suspected Scam (contract) on ${registryScam.chains.join(", ")} in an earlier investigation. Same address on a different chain does NOT guarantee the same contract deployment — verify before relying on this.`
+      : `Address previously confirmed Suspected Scam on ${registryScam.chains.join(", ")} in an earlier investigation.`;
+    const existingNotes = (node.notes || "").trim();
+    node.notes = existingNotes ? `${existingNotes}\n\n${crossChainNote}` : crossChainNote;
+    saveConfirmedScam(node.address, node.chain, registryScam.isContract, registryScam.justification); // record this chain too
+    markNodeDirty(node.address);
+    scheduleSave();
+    return;
+  }
   // Bitcoin: check hardcoded exchange list. No explorer API for labels.
   if (chainKind(node.chain) === "btc") {
     const knownBtcEx = KNOWN_BTC_EXCHANGES[node.address.toLowerCase()];
@@ -2642,8 +2678,29 @@ async function ensureAddressTag(node) {
     if (label) {
       node.autoLabel = label;
       const lower = label.toLowerCase();
+      // BRIDGE_KEYWORDS existed and was already used by the live auto-trace's
+      // hop-following logic (see traceFundsAuto), but this general tag-check
+      // path — which is what actually populates category for most of the
+      // graph, not just nodes touched mid-trace — never checked it. A
+      // contract labeled "Stargate: TokenMessaging" or "Relay: Depository"
+      // fell through both EXCHANGE_KEYWORDS and ROUTER_KEYWORDS and stayed
+      // "unclassified" forever: invisible on the map, and invisible to the
+      // BREAKPOINT export (which only ever exports nodes someone manually
+      // confirmed). Checked before ROUTER_KEYWORDS since a bridge should win
+      // that classification even if its name also loosely reads as a swap
+      // ("Stargate" doesn't contain "swap", but keep the ordering defensive).
+      // Maps to category "router" — same convention BOUNDARY_TYPE_TO_CATEGORY
+      // already uses for boundary type "bridge" — so bridges get the same
+      // crime-flag exemption as DEX/aggregator infra (see NON_VICTIM_CATEGORIES
+      // and the "router" checks a few thousand lines down). bridgeLikely is a
+      // separate flag so downstream code (bulk-confirm, export) can still tell
+      // a detected bridge apart from a detected DEX even though both share
+      // the "router" category.
       if (EXCHANGE_KEYWORDS.some(k => lower.includes(k)) && (!node.category || node.category === "unclassified")) {
         node.category = "exchange";
+      } else if (BRIDGE_KEYWORDS.some(k => lower.includes(k)) && (!node.category || node.category === "unclassified")) {
+        node.category = "router";
+        node.bridgeLikely = true;
       } else if (ROUTER_KEYWORDS.some(k => lower.includes(k)) && (!node.category || node.category === "unclassified")) {
         node.category = "router";
       }
@@ -4400,6 +4457,50 @@ function removeConfirmedContract(address, chain) {
   idbSet(CONFIRMED_CONTRACTS_KEY, confirmedContractsCache).catch(() => {});
 }
 
+// ---------- Persistent confirmed-scam registry (attacker wallets/contracts) ----------
+// Same durability model as confirmedExchangesCache/confirmedContractsCache — own
+// IndexedDB key, survives "Clear data", included in backups, carried into
+// exportBoundaryRegistryForBreakpoint()'s sibling concept but NOT the same
+// registry: Breakpoint's file is custody-BREAK points (bridges, mixers, DEXs,
+// exchanges) — places a trail legitimately needs a different technique to pick
+// back up. A scam wallet is the opposite: the thing being followed, not a point
+// where following stops. Keeping this separate matters.
+//
+// Keyed by address ONLY, same as confirmedExchangesCache and for the same
+// underlying reason: an attacker-controlled EOA is, by construction, the exact
+// same address on every EVM chain (confirmed directly this session — the same
+// wallet resurfaced on Flare and Ethereum both). A scam CONTRACT is different —
+// contracts are deployed per-chain and only share an address across chains in
+// the CREATE2-with-identical-bytecode-and-salt case, which is rare and not
+// something this cache should assume. isContract is stored per entry so
+// lookups can weight EOA matches with full confidence and contract matches
+// with a flagged "same address, different chain — verify before assuming same
+// deployment" caveat rather than silently treating them the same way.
+const CONFIRMED_SCAM_KEY = "confirmed-scam-v1";
+let confirmedScamCache = {}; // key: address.toLowerCase() -> {address, isContract, chains:[...], label, justification, confirmedAt}
+async function loadConfirmedScam() {
+  try { confirmedScamCache = (await idbGet(CONFIRMED_SCAM_KEY)) || {}; }
+  catch { confirmedScamCache = {}; }
+}
+function saveConfirmedScam(address, chain, isContract, justification) {
+  const key = address.toLowerCase();
+  const existing = confirmedScamCache[key];
+  const chains = new Set(existing ? existing.chains : []);
+  chains.add(chain);
+  confirmedScamCache[key] = {
+    address: existing ? existing.address : storedAddrForm(address),
+    isContract: !!isContract,
+    chains: [...chains],
+    justification: justification || (existing ? existing.justification : "") || "",
+    confirmedAt: existing ? existing.confirmedAt : new Date().toISOString()
+  };
+  idbSet(CONFIRMED_SCAM_KEY, confirmedScamCache).catch(() => {});
+}
+function removeConfirmedScam(address) {
+  delete confirmedScamCache[address.toLowerCase()];
+  idbSet(CONFIRMED_SCAM_KEY, confirmedScamCache).catch(() => {});
+}
+
 // Small modal for the label + type, since a prompt() can't offer a dropdown.
 // No password/crypto involved — just reuses the same overlay pattern.
 function promptContractDetails(defaultLabel) {
@@ -4416,6 +4517,7 @@ function promptContractDetails(defaultLabel) {
         <select id="__ccType" style="width:100%;">
           <option value="token_contract">Token contract (USDC, USDT, etc.)</option>
           <option value="dex">DEX / swap router</option>
+          <option value="bridge">Bridge / cross-chain messaging (Stargate, Relay, LayerZero, etc.)</option>
         </select>
         <div style="display:flex;gap:8px;margin-top:14px;">
           <button type="button" id="__ccCancel" class="small">Cancel</button>
@@ -5341,6 +5443,10 @@ function applyPendingRestore() {
   if (parsed.confirmedContracts && typeof parsed.confirmedContracts === "object") {
     Object.assign(confirmedContractsCache, parsed.confirmedContracts);
     idbSet(CONFIRMED_CONTRACTS_KEY, confirmedContractsCache).catch(() => {});
+  }
+  if (parsed.confirmedScam && typeof parsed.confirmedScam === "object") {
+    Object.assign(confirmedScamCache, parsed.confirmedScam);
+    idbSet(CONFIRMED_SCAM_KEY, confirmedScamCache).catch(() => {});
   }
   normalizeNetworkData(); // repair mixed-case addresses saved by earlier versions
   purgeSystemAddresses(); // drop burn/mint sinks saved before graph-build exclusion existed
@@ -7648,6 +7754,7 @@ async function buildBackupStream(sink, onProgress) {
   await push(',"xrplTags":' + JSON.stringify(checksumDeep(state.xrplTags || {})));
   await push(',"confirmedExchanges":' + JSON.stringify(checksumDeep(confirmedExchangesCache || {})));
   await push(',"confirmedContracts":' + JSON.stringify(checksumDeep(confirmedContractsCache || {})));
+  await push(',"confirmedScam":' + JSON.stringify(checksumDeep(confirmedScamCache || {})));
   await push("}");
   await flush();
   return bytesOut;
@@ -7736,7 +7843,34 @@ function exportBoundaryRegistryForBreakpoint() {
     });
   }
 
-  if (!registry.length) { showError("Nothing to export yet — mark an exchange or a verified contract first, then try again."); return; }
+  // confirmedScamCache is address-keyed with a chains[] array (an attacker
+  // EOA reuses the same address across every EVM chain it touches — see the
+  // registry's own definition comment). Breakpoint's schema is address+chain
+  // per row, so one scam confirmation here becomes one registry entry PER
+  // chain it's actually been seen on, not one entry defaulted to a guessed
+  // chain the way the old exchange path has to. type "scam" carries through
+  // as-is; Wallet-Tracer's own boundary-check special-cases it on the way
+  // back in (see the "type === scam" branch a few thousand lines down) so a
+  // re-import never locks the address's fetch state the way a bridge/mixer
+  // hit correctly does.
+  for (const entry of Object.values(confirmedScamCache || {})) {
+    const contractCaveat = entry.isContract
+      ? " This is a CONTRACT, not a wallet — the same address on a different chain is not guaranteed to be the same deployment; verify before relying on that specific chain's entry."
+      : "";
+    for (const chain of (entry.chains || [])) {
+      registry.push({
+        address: entry.address,
+        chain,
+        type: "scam",
+        protocol: "Confirmed scam" + (entry.justification ? ` — ${entry.justification}` : ""),
+        confidence: "confirmed",
+        notes: `Verified by investigator in Wallet-Tracer.${contractCaveat}`,
+        source: "Wallet-Tracer export"
+      });
+    }
+  }
+
+  if (!registry.length) { showError("Nothing to export yet — mark an exchange, a verified contract, or a confirmed scam wallet first, then try again."); return; }
 
   const ts = new Date().toISOString().replace(/:/g, "-").replace(/\..+/, "").replace("T", "_");
   const blob = new Blob([JSON.stringify({ registry, exported: new Date().toISOString() }, null, 2)], { type: "application/json" });
@@ -7747,6 +7881,226 @@ function exportBoundaryRegistryForBreakpoint() {
   if (skippedMismatches.length) msg += ` Skipped ${skippedMismatches.length} stale confirmation${skippedMismatches.length === 1 ? "" : "s"} that no longer match this session's data: ${skippedMismatches.join("; ")}.`;
   const st = document.getElementById("saveStatus");
   if (st) st.textContent = msg; else showError(msg);
+}
+
+// ---------- Bulk infrastructure confirm ----------
+// The single-node "Mark as verified contract" flow (verifiedContractBtn,
+// above) requires opening each node's detail panel and clicking through one
+// at a time. That doesn't scale once a trace crosses even one bridge, let
+// alone several — a single fan-out/consolidation pattern can surface dozens
+// of legitimate infrastructure nodes (DEX routers, bridge contracts) in one
+// scan, and every one of them needs to be manually confirmed before it will
+// ever reach BREAKPOINT via exportBoundaryRegistryForBreakpoint(), since that
+// export only reads from confirmedContractsCache/confirmedExchangesCache —
+// never from category directly. This scans everything currently loaded,
+// finds nodes that already LOOK like known infrastructure (isContract, has
+// a real autoLabel from the explorer, not already confirmed) and lets the
+// investigator review and confirm them as a batch instead of hunting through
+// the graph node by node.
+function guessInfraType(node) {
+  const lower = (node.autoLabel || "").toLowerCase();
+  if (node.bridgeLikely || BRIDGE_KEYWORDS.some(k => lower.includes(k))) return "bridge";
+  if (ROUTER_KEYWORDS.some(k => lower.includes(k))) return "dex";
+  return "token_contract";
+}
+
+function findUnconfirmedInfraCandidates() {
+  const out = [];
+  for (const n of (state.nodes || [])) {
+    if (!n.isContract) continue;
+    if (!n.autoLabel || !n.autoLabel.trim()) continue; // no real name = nothing to review, would just be guessing
+    if (n.verifiedContract) continue; // already confirmed via the single-node flow
+    if (n.category === "victim" || n.category === "scam") continue; // never bulk-confirm these as "infrastructure"
+    const key = computeBoundaryKey(n.chain, n.address);
+    if (confirmedContractsCache[key]) continue; // already in the cache under a different node reference
+    out.push(n);
+  }
+  // Highest-value nodes first — the ones actually worth reviewing carefully.
+  out.sort((a, b) => (Number(b.inValue || 0) + Number(b.outValue || 0)) - (Number(a.inValue || 0) + Number(a.outValue || 0)));
+  return out;
+}
+
+function bulkConfirmInfrastructure() {
+  const candidates = findUnconfirmedInfraCandidates();
+  if (!candidates.length) {
+    const st = document.getElementById("saveStatus");
+    const msg = "No unconfirmed infrastructure found in the currently loaded map \u2014 either everything's already confirmed, or nothing loaded yet looks like a named contract. (Nodes need an explorer-provided name to show up here; run a tag check / trace first.)";
+    if (st) st.textContent = msg; else showError(msg);
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:520;display:flex;align-items:center;justify-content:center;padding:16px;";
+  const rows = candidates.map((n, i) => {
+    const guess = guessInfraType(n);
+    const inV = (n.inValue || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const outV = (n.outValue || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const valueNote = `in ${inV} / out ${outV}`;
+    return `
+      <div class="__bciRow" style="display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--line);">
+        <input type="checkbox" class="__bciCheck" data-i="${i}" checked style="margin-top:4px;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-family:'Courier New',monospace; font-size:11.5px; font-weight:600; overflow-wrap:anywhere;">${escapeHtml(n.address)}</div>
+          <div style="font-size:11px; color:var(--text-2); margin-top:2px;">${escapeHtml(n.autoLabel)} &middot; ${escapeHtml(n.chain)} &middot; ${valueNote}</div>
+        </div>
+        <select class="__bciType" data-i="${i}" style="font-size:11px; max-width:150px;">
+          <option value="token_contract" ${guess === "token_contract" ? "selected" : ""}>Token contract</option>
+          <option value="dex" ${guess === "dex" ? "selected" : ""}>DEX / router</option>
+          <option value="bridge" ${guess === "bridge" ? "selected" : ""}>Bridge</option>
+        </select>
+      </div>`;
+  }).join("");
+  overlay.innerHTML = `
+    <div style="background:var(--ink-1); border:1px solid var(--line-strong); border-radius:10px; max-width:560px; width:100%; max-height:80vh; display:flex; flex-direction:column; padding:20px;">
+      <h3 style="margin:0 0 6px; font-size:14px; color:var(--text);">Bulk-confirm infrastructure</h3>
+      <p style="margin:0 0 10px; font-size:12px; color:var(--text-2);">
+        ${candidates.length} node${candidates.length === 1 ? "" : "s"} already carry a real explorer-provided name and aren't confirmed yet.
+        Type is guessed from the name (bridge/router keyword matching) \u2014 review before confirming, especially anything guessed as
+        "Token contract" by default, since that's the fallback when neither list matches. Uncheck anything that shouldn't be
+        treated as verified infrastructure.
+      </p>
+      <div style="overflow-y:auto; flex:1; border-top:1px solid var(--line); margin-bottom:12px;">${rows}</div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="small" id="__bciCancel">Cancel</button>
+        <button type="button" class="small" id="__bciConfirm" style="border-color:var(--brass); color:var(--brass);">Confirm selected</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector("#__bciCancel").onclick = () => overlay.remove();
+  overlay.querySelector("#__bciConfirm").onclick = () => {
+    let count = 0;
+    overlay.querySelectorAll(".__bciCheck").forEach((cb) => {
+      if (!cb.checked) return;
+      const i = Number(cb.dataset.i);
+      const node = candidates[i];
+      const typeSel = overlay.querySelector(`.__bciType[data-i="${i}"]`);
+      const type = typeSel ? typeSel.value : guessInfraType(node);
+      saveConfirmedContract(node.address, node.chain, node.autoLabel, type);
+      upsertNode(node.address, node.chain, {
+        category: (type === "dex" || type === "bridge") ? "router" : "contract",
+        verifiedContract: true
+      });
+      count++;
+    });
+    overlay.remove();
+    scheduleSave(); renderAll();
+    const st = document.getElementById("saveStatus");
+    const msg = `Confirmed ${count} infrastructure node${count === 1 ? "" : "s"}. Use "Export to BREAKPOINT" to send ${count === 1 ? "it" : "them"} over.`;
+    if (st) st.textContent = msg; else showError(msg);
+  };
+}
+
+// ---------- Bulk scam-wallet confirm ----------
+// Mirrors bulkConfirmInfrastructure, for the same underlying reason: the
+// dropdown's "Suspected Scam" option only writes to confirmedScamCache at
+// the MOMENT it's clicked (setCategory transitioning a node INTO "scam").
+// Any node that already sat at category "scam" before that write path
+// existed — from an earlier session, a restored backup, a JSON import, or
+// tagging done hours before this feature shipped — has no way to reach the
+// durable registry, and therefore no way to reach BREAKPOINT, without this.
+//
+// Lower bar than a fresh scam tag, deliberately: every node here already
+// carries category === "scam" AND manualCategory === true in this
+// investigation (setCategory sets both together; nothing else in the
+// codebase hardcodes category to "scam" without also setting
+// manualCategory) — meaning a human already made this call at some point.
+// This is syncing an existing decision to the durable store, not making a
+// new one. Still surfaces detectScamTagConflict's warning inline per row
+// and defaults conflicted rows UNCHECKED, since that check exists
+// specifically to catch high-volume legitimate services mistagged in a
+// rushed moment, and a backfill happening well after the original tag is
+// exactly when that kind of mistake is easiest to wave through unnoticed.
+function findUnconfirmedScamCandidates() {
+  const out = [];
+  for (const n of (state.nodes || [])) {
+    if (n.category !== "scam") continue;
+    if (confirmedScamCache[n.address.toLowerCase()]) continue; // already synced
+    out.push(n);
+  }
+  out.sort((a, b) => (Number(b.inValue || 0) + Number(b.outValue || 0)) - (Number(a.inValue || 0) + Number(a.outValue || 0)));
+  return out;
+}
+
+function bulkConfirmScamWallets() {
+  const candidates = findUnconfirmedScamCandidates();
+  if (!candidates.length) {
+    const st = document.getElementById("saveStatus");
+    const msg = "No unsynced scam wallets found \u2014 every wallet tagged Suspected Scam in the currently loaded map is already in the durable registry.";
+    if (st) st.textContent = msg; else showError(msg);
+    return;
+  }
+
+  const overlay = document.createElement("div");
+  overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:520;display:flex;align-items:center;justify-content:center;padding:16px;";
+  const rows = candidates.map((n, i) => {
+    const conflict = detectScamTagConflict(n);
+    const inV = (n.inValue || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const outV = (n.outValue || 0).toLocaleString(undefined, { maximumFractionDigits: 2 });
+    const label = n.autoLabel || "(no explorer label)";
+    return `
+      <div class="__bcsRow" style="display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid var(--line);">
+        <input type="checkbox" class="__bcsCheck" data-i="${i}" ${conflict ? "" : "checked"} style="margin-top:4px;">
+        <div style="flex:1; min-width:0;">
+          <div style="font-family:'Courier New',monospace; font-size:11.5px; font-weight:600; overflow-wrap:anywhere;">${escapeHtml(n.address)}</div>
+          <div style="font-size:11px; color:var(--text-2); margin-top:2px;">${escapeHtml(label)} &middot; ${escapeHtml(n.chain)} &middot; in ${inV} / out ${outV}${n.isContract ? " &middot; contract" : ""}</div>
+          ${conflict ? `<div style="font-size:11px; color:#e08a7a; margin-top:4px;">\u26a0 ${escapeHtml(conflict)}</div>` : ""}
+        </div>
+      </div>`;
+  }).join("");
+  const conflictCount = candidates.filter(n => detectScamTagConflict(n)).length;
+  overlay.innerHTML = `
+    <div style="background:var(--ink-1); border:1px solid var(--line-strong); border-radius:10px; max-width:560px; width:100%; max-height:80vh; display:flex; flex-direction:column; padding:20px;">
+      <h3 style="margin:0 0 6px; font-size:14px; color:var(--text);">Bulk-confirm scam wallets</h3>
+      <p style="margin:0 0 10px; font-size:12px; color:var(--text-2);">
+        ${candidates.length} wallet${candidates.length === 1 ? "" : "s"} already tagged Suspected Scam in this map aren't in the durable cross-case registry yet \u2014
+        confirming here is what makes them reach BREAKPOINT and get recognized automatically in future cases.
+        ${conflictCount ? `${conflictCount} row${conflictCount === 1 ? "" : "s"} below are unchecked by default because they conflict with the wallet's own computed behavior \u2014 review before including them.` : ""}
+      </p>
+      <label style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">Justification for any flagged row you include anyway (optional, saved to that wallet's notes)</label>
+      <textarea id="__bcsJust" style="width:100%; min-height:50px; margin-bottom:10px;" placeholder="e.g. Confirmed via Chainalysis Reactor despite high tx count"></textarea>
+      <div style="overflow-y:auto; flex:1; border-top:1px solid var(--line); margin-bottom:12px;">${rows}</div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button type="button" class="small" id="__bcsCancel">Cancel</button>
+        <button type="button" class="small" id="__bcsConfirm" style="border-color:#c0392b; color:#e08a7a;">Confirm selected</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector("#__bcsCancel").onclick = () => overlay.remove();
+  overlay.querySelector("#__bcsConfirm").onclick = () => {
+    const justInput = overlay.querySelector("#__bcsJust");
+    const justification = justInput.value.trim();
+    // Same requirement as the single-node flow: a checked row that conflicts
+    // with the wallet's own computed behavior needs a written reason before
+    // it's allowed through, not just a silently accepted default.
+    const checkedConflicted = [...overlay.querySelectorAll(".__bcsCheck")].some((cb) => {
+      if (!cb.checked) return false;
+      return !!detectScamTagConflict(candidates[Number(cb.dataset.i)]);
+    });
+    if (checkedConflicted && !justification) {
+      justInput.style.borderColor = "#c0392b";
+      justInput.placeholder = "Required for the flagged row(s) you've left checked \u2014 explain why they're scam anyway";
+      justInput.focus();
+      return;
+    }
+    let count = 0;
+    overlay.querySelectorAll(".__bcsCheck").forEach((cb) => {
+      if (!cb.checked) return;
+      const i = Number(cb.dataset.i);
+      const node = candidates[i];
+      const conflict = detectScamTagConflict(node);
+      if (conflict && justification) {
+        const existingNotes = (node.notes || "").trim();
+        setNotes(node.address, existingNotes ? `${existingNotes}\n\n${justification}` : justification);
+      }
+      saveConfirmedScam(node.address, node.chain, !!node.isContract, conflict ? justification : "");
+      count++;
+    });
+    overlay.remove();
+    scheduleSave(); renderAll();
+    const st = document.getElementById("saveStatus");
+    const msg = `Synced ${count} scam wallet${count === 1 ? "" : "s"} to the durable registry. Use "Export to BREAKPOINT" to send ${count === 1 ? "it" : "them"} over.`;
+    if (st) st.textContent = msg; else showError(msg);
+  };
 }
 
 async function downloadBackup(compressed) {
@@ -8925,6 +9279,10 @@ function restoreBackup(file) {
           Object.assign(confirmedContractsCache, parsed.confirmedContracts);
           idbSet(CONFIRMED_CONTRACTS_KEY, confirmedContractsCache).catch(() => {});
         }
+        if (parsed.confirmedScam && typeof parsed.confirmedScam === "object") {
+          Object.assign(confirmedScamCache, parsed.confirmedScam);
+          idbSet(CONFIRMED_SCAM_KEY, confirmedScamCache).catch(() => {});
+        }
         parsed = null; // drop the wrapper; state holds the arrays directly
         normalizeNetworkData(); // repairs mixed-case addresses AND trims flags bloat from older exports (see trimFlags)
         purgeSystemAddresses(); // imported files may predate the system-address exclusion
@@ -9051,6 +9409,14 @@ async function investigateInner(rawAddress, chainOverride, fetchOpts) {
   // more pages from an explorer that can't see the other chain anyway.
   // Never touches notes destructively: existing notes are preserved and
   // appended to, never overwritten, same as flags.
+  //
+  // type "scam" is the one exception to all of the above: it's a confirmed
+  // attacker wallet/contract from a past investigation, not custody
+  // infrastructure. The whole point of recognizing it is to keep scanning
+  // it forward, not to treat it as a wall — so it enriches the node
+  // (category, autoLabel, notes, flags) exactly like the others, but
+  // deliberately skips the inFetched/outFetched lock and the early return
+  // that stop everything else here.
   try {
     const boundaryHit = await ensureBoundaryTag(addr, useChain);
     if (boundaryHit) {
@@ -9059,17 +9425,30 @@ async function investigateInner(rawAddress, chainOverride, fetchOpts) {
       const guidance = BOUNDARY_TYPE_GUIDANCE[boundaryHit.type] || "Known infrastructure — on-chain trail stops here.";
       const noteLine = `BREAKPOINT registry match: ${boundaryHit.tag} (${boundaryHit.type}, ${boundaryHit.confidence} confidence). ${guidance}`;
       const mergedNotes = existingNode && existingNode.notes ? (existingNode.notes + "\n\n" + noteLine) : noteLine;
-      upsertNode(addr, useChain, {
-        category: BOUNDARY_TYPE_TO_CATEGORY[boundaryHit.type] || "router",
-        autoLabel: boundaryHit.tag,
-        investigated: true,
-        inFetched: true, outFetched: true, // nothing more to fetch — this IS the boundary
-        notes: mergedNotes,
-        flags: mergedFlags
-      });
-      markNodeDirty(addr); scheduleSave(); renderAll();
-      showError(`Boundary match: ${boundaryHit.tag} (${boundaryHit.type}, ${boundaryHit.confidence}) \u2014 ${guidance} This wallet was tagged and NOT scanned further.`);
-      return;
+      if (boundaryHit.type === "scam") {
+        upsertNode(addr, useChain, {
+          category: "scam",
+          manualCategory: true, // this WAS a human decision — just made in an earlier case, same as the confirmedScamCache pre-tag path
+          autoLabel: boundaryHit.tag,
+          notes: mergedNotes,
+          flags: mergedFlags
+        });
+        markNodeDirty(addr); scheduleSave(); renderAll();
+        // No showError/return here — scanning falls through to the normal
+        // fetch logic below, same as any other freshly-tagged node.
+      } else {
+        upsertNode(addr, useChain, {
+          category: BOUNDARY_TYPE_TO_CATEGORY[boundaryHit.type] || "router",
+          autoLabel: boundaryHit.tag,
+          investigated: true,
+          inFetched: true, outFetched: true, // nothing more to fetch — this IS the boundary
+          notes: mergedNotes,
+          flags: mergedFlags
+        });
+        markNodeDirty(addr); scheduleSave(); renderAll();
+        showError(`Boundary match: ${boundaryHit.tag} (${boundaryHit.type}, ${boundaryHit.confidence}) \u2014 ${guidance} This wallet was tagged and NOT scanned further.`);
+        return;
+      }
     }
   } catch (e) { /* a boundary-lookup failure must never block a normal trace */ }
   // Scan-depth bookkeeping. Reset the truncation flag so it reflects THIS
@@ -10539,17 +10918,33 @@ function renderSidePanel() {
         e.stopPropagation();
         dropdownMenu.style.display = "none";
         const targetCategory = opt.getAttribute("data-category");
+        const node = nodeIndex().get(selectedNode.address.toLowerCase());
+        const wasScam = node && node.category === "scam";
+        let justification = "";
         if (targetCategory === "scam") {
-          const node = nodeIndex().get(selectedNode.address.toLowerCase());
           const conflict = detectScamTagConflict(node);
           if (conflict) {
-            const justification = await promptScamTagConfirmation(conflict);
+            justification = await promptScamTagConfirmation(conflict);
             if (!justification) return; // cancelled — category left unchanged
             const existingNotes = (node.notes || "").trim();
             setNotes(selectedNode.address, existingNotes ? `${existingNotes}\n\n${justification}` : justification);
           }
         }
         setCategory(selectedNode.address, targetCategory);
+        // Mirror the confirm into the durable cross-case registry, same as
+        // the exchange/contract confirm flows do. Writing on every confirm
+        // (not just the first) keeps `chains` current when the same wallet
+        // gets re-confirmed after surfacing on a new chain — see
+        // saveConfirmedScam's merge behavior.
+        if (targetCategory === "scam") {
+          saveConfirmedScam(selectedNode.address, selectedNode.chain, !!(node && node.isContract), justification);
+        } else if (wasScam) {
+          // Re-tagged AWAY from scam — the durable registry should reflect
+          // that correction, or a future case would keep getting this
+          // address pre-tagged as scam based on a call that's since been
+          // reversed.
+          removeConfirmedScam(selectedNode.address);
+        }
       });
     });
     document.getElementById("notesArea").addEventListener("input", (e) => setNotes(selectedNode.address, e.target.value));
@@ -10663,8 +11058,12 @@ function renderSidePanel() {
       const details = await promptContractDetails(selectedNode.autoLabel);
       if (!details) return;
       saveConfirmedContract(selectedNode.address, selectedNode.chain, details.label, details.type);
+      // "bridge" maps to category "router" — same convention BOUNDARY_TYPE_TO_CATEGORY
+      // already uses (see top of file). Bridges get the same crime-flag exemption and
+      // rendering as DEX/aggregator infra; only the exported `type` field distinguishes
+      // them (that's what BREAKPOINT's own registry actually keys off of).
       upsertNode(selectedNode.address, selectedNode.chain, {
-        category: details.type === "dex" ? "router" : "contract",
+        category: (details.type === "dex" || details.type === "bridge") ? "router" : "contract",
         autoLabel: details.label,
         verifiedContract: true
       });
@@ -11865,6 +12264,7 @@ document.addEventListener("DOMContentLoaded", () => {
   renderAll();
   loadConfirmedExchanges().then(() => renderAll()); // async — re-render once the durable exchange registry lands
   loadConfirmedContracts().then(() => renderAll()); // async — re-render once the durable contract registry lands
+  loadConfirmedScam().then(() => renderAll()); // async — re-render once the durable scam registry lands
   loadAiSettings(); // async — API key + usage counters, own IndexedDB key, never in a backup export
   toggleControlsCollapse(localStorage.getItem("wt_controls_collapsed") === "1");
   autoSyncBoundaryRegistryIfChanged(); // fire-and-forget — checks the connected master file for changes, silent if nothing changed
@@ -12087,6 +12487,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("downloadBtn").addEventListener("click", () => { downloadBackup(false); });
   { const gz = document.getElementById("downloadGzBtn"); if (gz) gz.addEventListener("click", () => { downloadBackup(true).catch(e => showError("Compressed backup failed: " + (e && e.message ? e.message : e))); }); }
   { const eb = document.getElementById("exportBoundaryBtn"); if (eb) eb.addEventListener("click", exportBoundaryRegistryForBreakpoint); }
+  { const bb = document.getElementById("bulkConfirmInfraBtn"); if (bb) bb.addEventListener("click", bulkConfirmInfrastructure); }
+  { const bs = document.getElementById("bulkConfirmScamBtn"); if (bs) bs.addEventListener("click", bulkConfirmScamWallets); }
   { const lep = document.getElementById("generateLEPacketBtn"); if (lep) lep.addEventListener("click", () => {
       const selected = state.selectedAddress ? nodeIndex().get(state.selectedAddress.toLowerCase()) : null;
       let target = (selected && selected.traceAnchor) ? selected : null;
