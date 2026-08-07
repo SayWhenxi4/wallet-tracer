@@ -282,6 +282,7 @@
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
       <button class="ghost" onclick="resetToSeed()">Reset to seed data</button>
       <button class="ghost" onclick="normalizeChainCasing()">Fix chain name casing</button>
+      <button class="ghost" onclick="removeStoredDuplicates()">Remove duplicate addresses</button>
     </div>
   </div>
 
@@ -359,6 +360,25 @@ function computeKey(e) {
   const rawAddr = String(e.address || '').trim();
   const addr = EVM_ADDR_RE.test(rawAddr) ? rawAddr.toLowerCase() : rawAddr;
   return String(e.chain || 'unknown').trim().toLowerCase() + '::' + addr;
+}
+
+// A registry key is chain + address. Duplicates are NEVER accepted.
+// EVM addresses are normalized case-insensitively by computeKey(); Bitcoin/XRPL
+// and other non-EVM addresses remain case-sensitive.
+function normalizeAddressForDedup(e) {
+  let addr = String(e.address || '').trim();
+
+  // EVM: checksum/lowercase variants are the same address.
+  if (EVM_ADDR_RE.test(addr)) return addr.toLowerCase();
+
+  // For all other address formats, remove harmless presentation differences
+  // only. Do NOT lowercase Base58/XRPL addresses because case is meaningful.
+  // This catches whitespace and common copy/paste formatting variants.
+  return addr.replace(/[\\s\\u200B-\\u200D\\uFEFF]+/g, '');
+}
+
+function duplicateKey(e) {
+  return String(e.chain || 'unknown').trim().toLowerCase() + '::' + normalizeAddressForDedup(e);
 }
 
 // Validates one raw (untrusted) record. Returns { ok:true, entry } with a
@@ -641,9 +661,20 @@ function putEntry(entry){
   return new Promise((resolve, reject) => {
     entry._key = computeKey(entry);
     const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(entry);
+    const store = tx.objectStore(STORE);
+    const getReq = store.get(entry._key);
+    getReq.onsuccess = () => {
+      if (getReq.result) {
+        tx.abort();
+        reject(new Error('DUPLICATE_ENTRY'));
+        return;
+      }
+      store.add(entry); // add(), not put(): IndexedDB itself rejects an existing key.
+    };
+    getReq.onerror = () => { tx.abort(); reject(getReq.error); };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => { if (tx.error && tx.error.name === 'ConstraintError') reject(new Error('DUPLICATE_ENTRY')); };
   });
 }
 
@@ -654,25 +685,43 @@ function putEntry(entry){
 // chunks instead of locking the tab for the whole write.
 const CHUNK_SIZE = 2000;
 async function putEntries(list, onProgress){
+  // Final storage-level guard. Even if a caller forgets to pre-filter duplicates,
+  // this function will never overwrite an existing record.
+  let written = 0, rejected = 0;
   for (let i = 0; i < list.length; i += CHUNK_SIZE) {
     const chunk = list.slice(i, i + CHUNK_SIZE);
     await new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readwrite');
       const store = tx.objectStore(STORE);
-      for (const e of chunk) { e._key = e._key || computeKey(e); store.put(e); }
-      tx.oncomplete = resolve;
+      const pending = [];
+      for (const e of chunk) {
+        e._key = e._key || computeKey(e);
+        pending.push(new Promise((res) => {
+          const req = store.get(e._key);
+          req.onsuccess = () => {
+            if (req.result) { rejected++; res(); return; }
+            const addReq = store.add(e); // hard duplicate rejection at IndexedDB level
+            addReq.onsuccess = () => { written++; res(); };
+            addReq.onerror = () => {
+              if (addReq.error && addReq.error.name === 'ConstraintError') { rejected++; res(); }
+              else res();
+            };
+          };
+          req.onerror = () => res();
+        }));
+      }
+      Promise.all(pending).then(resolve).catch(reject);
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
     });
     if (onProgress) onProgress(Math.min(i + CHUNK_SIZE, list.length), list.length);
-    // Yield to the event loop between chunks so the tab stays responsive.
     await new Promise(r => setTimeout(r, 0));
   }
+  return { written, rejected };
 }
 
-// Merges a validated incoming record with whatever's already at that key
-// (chain+address). Nothing is silently destroyed: the prior state is pushed
-// onto a capped history[] array first, so a bad bulk import can be reviewed
-// and reasoned about afterward instead of just clobbering curated data.
+// Legacy history merge helper retained for compatibility with existing records.
+// New imports/additions are strict: duplicates are rejected before this helper is used.
 const MAX_HISTORY = 10;
 function mergeWithHistory(existing, incoming, source) {
   const now = new Date().toISOString();
@@ -950,15 +999,22 @@ async function addEntry(){
     }
   }
 
-  const key = computeKey(v.entry);
-  const merged = mergeWithHistory(entryMap.get(key), v.entry, 'manual');
-  await putEntry(merged);
+  const key = duplicateKey(v.entry);
+
+  // Never accept a duplicate from the Add Entry form.
+  if (entryMap.has(key)) {
+    showToast('Not saved — duplicate address already exists on this chain');
+    return;
+  }
+
+  const entry = { ...v.entry, _key: key };
+  await putEntry(entry);
   entries = await getAll();
   ['f_addr','f_protocol','f_notes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f_chain_other').value = '';
   document.getElementById('f_chain_other').style.display = 'none';
   render();
-  showToast(entryMap.has(key) ? 'Entry updated (prior version kept in history)' : 'Entry added');
+  showToast('Entry added');
 }
 
 async function exportJSON(){
@@ -1004,24 +1060,40 @@ async function runImportPipeline(data, sourceLabel){
     if (rawList.length > VALIDATE_CHUNK) await new Promise(r => setTimeout(r, 0)); // keep the tab responsive
   }
 
+  // STRICT duplicate protection:
+  // - A key already in the registry is rejected.
+  // - A key repeated inside the incoming file is rejected.
+  // - Nothing is silently converted into an update.
   let added = 0, updated = 0, unchanged = 0;
+  const duplicateRows = [];
   const toWrite = [];
+  const seenIncoming = new Set();
+
   for (const inc of valid) {
-    const key = computeKey(inc);
-    const existing = entryMap.get(key);
-    if (!existing) added++;
-    else {
-      const changed = existing.type !== inc.type || existing.confidence !== inc.confidence
-        || existing.protocol !== inc.protocol || existing.notes !== inc.notes;
-      changed ? updated++ : unchanged++;
+    const key = duplicateKey(inc);
+
+    if (entryMap.has(key)) {
+      duplicateRows.push({ raw: inc, reason: 'duplicate — address already exists on this chain' });
+      continue;
     }
-    toWrite.push(mergeWithHistory(existing, inc, inc.source || sourceLabel));
+
+    if (seenIncoming.has(key)) {
+      duplicateRows.push({ raw: inc, reason: 'duplicate — same address + chain appears more than once in this import' });
+      continue;
+    }
+
+    seenIncoming.add(key);
+    toWrite.push({ ...inc, _key: key });
+    added++;
   }
 
-  const invalidRows = invalid.slice(0, 25).map(x =>
+  const allRejected = invalid.concat(duplicateRows);
+
+  const invalidRows = allRejected.slice(0, 25).map(x =>
     `<div class="note">${escapeHTML(JSON.stringify(x.raw).slice(0, 140))} — <span style="color:var(--red)">${escapeHTML(x.reason)}</span></div>`
   ).join('') || '<div class="note">None.</div>';
-  const moreInvalid = invalid.length > 25 ? `<div class="note">…and ${invalid.length - 25} more rejected row(s).</div>` : '';
+  const rejectedTotal = invalid.length + duplicateRows.length;
+  const moreInvalid = rejectedTotal > 25 ? `<div class="note">…and ${rejectedTotal - 25} more rejected row(s).</div>` : '';
   const batchNote = toWrite.length > CHUNK_SIZE
     ? ` This will write in ${Math.ceil(toWrite.length / CHUNK_SIZE)} batches of ${CHUNK_SIZE} to keep the browser responsive.`
     : '';
@@ -1032,10 +1104,10 @@ async function runImportPipeline(data, sourceLabel){
       <div class="stat"><div class="n" style="color:var(--green)">${added.toLocaleString()}</div><div class="l">New</div></div>
       <div class="stat"><div class="n" style="color:var(--amber)">${updated.toLocaleString()}</div><div class="l">Updated</div></div>
       <div class="stat"><div class="n" style="color:var(--text-dim)">${unchanged.toLocaleString()}</div><div class="l">Unchanged</div></div>
-      <div class="stat"><div class="n" style="color:var(--red)">${invalid.length.toLocaleString()}</div><div class="l">Rejected</div></div>
+      <div class="stat"><div class="n" style="color:var(--red)">${rejectedTotal.toLocaleString()}</div><div class="l">Rejected</div></div>
     </div>
-    ${invalid.length ? `<div style="margin-bottom:10px;"><b style="color:var(--red); font-size:12px;">Rejected rows (will NOT be imported):</b>${invalidRows}${moreInvalid}</div>` : ''}
-    <div class="note">Updates keep the prior value in that record's history (viewable per-row after import via "view history") — nothing gets silently overwritten.${batchNote}</div>
+    ${rejectedTotal ? `<div style="margin-bottom:10px;"><b style="color:var(--red); font-size:12px;">Rejected rows (will NOT be imported):</b>${invalidRows}${moreInvalid}</div>` : ''}
+    <div class="note">Duplicates are rejected — an address may exist only once per chain. Existing records are not updated by import, and repeated rows inside the same import are also rejected.${batchNote}</div>
   `;
 
   return new Promise((resolve) => {
@@ -1045,12 +1117,12 @@ async function runImportPipeline(data, sourceLabel){
           removeModal();
           if (!toWrite.length) { showToast('Nothing valid to import'); resolve(false); return; }
           showToast(`Writing ${toWrite.length.toLocaleString()} record(s)…`);
-          await putEntries(toWrite, (done, total) => {
+          const writeResult = await putEntries(toWrite, (done, total) => {
             if (total > CHUNK_SIZE) showToast(`Writing… ${done.toLocaleString()}/${total.toLocaleString()}`);
           });
           entries = await getAll();
           render();
-          showToast(`Imported: ${added} new, ${updated} updated, ${unchanged} unchanged, ${invalid.length} rejected`);
+          showToast(`Imported: ${writeResult.written} new, ${duplicateRows.length + writeResult.rejected} duplicate, ${invalid.length} invalid`);
           resolve(true);
         }
       }
@@ -1421,13 +1493,21 @@ async function autoSyncFromDropboxIfChanged() {
     if (!Array.isArray(rawList) || !rawList.length) return;
 
     const toWrite = [];
+    const seen = new Set();
     for (const raw of rawList) {
       const v = validateEntry(raw);
-      if (!v.ok) continue; // same validation as manual import - malformed rows are silently skipped, not written
+      if (!v.ok) continue;
       const key = computeKey(v.entry);
-      toWrite.push(mergeWithHistory(entryMap.get(key), v.entry, 'Dropbox auto-sync'));
+      // Auto-sync is also strict: existing records and duplicates inside the
+      // Dropbox file are skipped, never updated or overwritten.
+      if (entryMap.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      toWrite.push({ ...v.entry, _key: key });
     }
-    if (!toWrite.length) return;
+    if (!toWrite.length) {
+      if (exportedAt) localStorage.setItem('bp_dropbox_last_auto_sync', exportedAt);
+      return;
+    }
 
     await putEntries(toWrite);
     entries = await getAll();
@@ -1508,6 +1588,99 @@ async function resetToSeed(){
 // duplicate option in the chain filter dropdown. New entries going forward
 // are already normalized at validation time; this fixes what's already sitting
 // in storage from before that fix existed.
+// Removes duplicates that were already stored before strict duplicate protection
+// was added. A duplicate means the same normalized chain + address, even when
+// older records used different chain casing (e.g. Ethereum vs ethereum).
+// When multiple copies exist, keep the most complete record and delete the rest.
+async function removeStoredDuplicates(){
+  if (!entries.length) { showToast('No entries to check'); return; }
+
+  // IMPORTANT: deduplicate by the actual normalized ADDRESS, not the old
+  // database key. This catches slight stored variants such as EVM checksum
+  // casing, leading/trailing whitespace, zero-width copy/paste characters,
+  // and other harmless presentation differences.
+  const groups = new Map();
+
+  for (const e of entries) {
+    const key = duplicateKey(e);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+
+  const duplicateGroups = [...groups.values()].filter(g => g.length > 1);
+
+  if (!duplicateGroups.length) {
+    showToast('No duplicate addresses found');
+    return;
+  }
+
+  const duplicateCount = duplicateGroups.reduce((n, g) => n + g.length - 1, 0);
+
+  if (!confirm(
+    `Found ${duplicateCount.toLocaleString()} duplicate address record(s) ` +
+    `across ${duplicateGroups.length.toLocaleString()} address group(s).\\n\\n` +
+    `The most complete record in each group will be kept and the other ` +
+    `records will be permanently deleted. Continue?`
+  )) return;
+
+  // Prefer the record with the most useful/complete metadata. If tied, keep
+  // the first record encountered.
+  function score(e) {
+    let s = 0;
+    if (e.protocol) s += 4;
+    if (e.notes) s += 3;
+    if (e.source) s += 2;
+    if (e.confidence) s += 2;
+    if (e.type) s += 1;
+    if (e.chain) s += 1;
+    if (e.address) s += 1;
+    return s;
+  }
+
+  const keep = [];
+  const deleteKeys = new Set();
+
+  for (const group of duplicateGroups) {
+    group.sort((a, b) => score(b) - score(a));
+    const winner = group[0];
+    const canonicalKey = duplicateKey(winner);
+
+    keep.push({ ...winner, _key: canonicalKey });
+
+    for (const loser of group.slice(1)) {
+      // Delete using the record's ACTUAL stored key when available.
+      deleteKeys.add(loser._key || computeKey(loser));
+    }
+
+    // If the winner was stored under an old/non-canonical key, remove that
+    // old key too; it will be rewritten under the canonical address key.
+    const oldWinnerKey = winner._key || computeKey(winner);
+    if (oldWinnerKey !== canonicalKey) deleteKeys.add(oldWinnerKey);
+  }
+
+  const tx = db.transaction(STORE, 'readwrite');
+  const store = tx.objectStore(STORE);
+
+  for (const key of deleteKeys) {
+    store.delete(key);
+  }
+
+  // Rewrite winners under their canonical address key.
+  for (const e of keep) {
+    store.put(e);
+  }
+
+  await new Promise((resolve, reject) => {
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('Duplicate cleanup aborted'));
+  });
+
+  entries = await getAll();
+  render();
+  showToast(`Removed ${duplicateCount.toLocaleString()} duplicate address record(s)`);
+}
+
 async function normalizeChainCasing(){
   const toFix = entries.filter(e => e.chain !== e.chain.toLowerCase());
   if (!toFix.length) { showToast('All chain names are already lowercase \u2014 nothing to fix.'); return; }
