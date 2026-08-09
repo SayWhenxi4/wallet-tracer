@@ -356,30 +356,41 @@ const MAX_FIELD_LEN = { address: 128, chain: 40, protocol: 300, notes: 4000, sou
 // it produces a different (invalid) address. Lowercasing here only for the
 // pattern that's actually safe to lowercase.
 const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
+// computeKey() and duplicateKey() used to be two different functions with
+// two different strictness levels — computeKey() (used almost everywhere:
+// schema migration, putEntry, getAll's entryMap build, auto-sync's
+// duplicate check) only lowercased EVM addresses, while duplicateKey()
+// (used ONLY by the manual "Remove Duplicates" button) additionally
+// stripped whitespace and invisible zero-width characters
+// (U+200B–200D, U+FEFF — common artifacts of copy-pasting an address out
+// of Messages, a PDF, or certain browsers). That gap is exactly why
+// duplicates kept reappearing a few minutes after cleanup: the manual
+// button could recognize two records as the same address and merge them,
+// but auto-sync's own entryMap.has() check — built from the SAME weaker
+// key — couldn't, so the next sync cycle treated the "duplicate" as a
+// legitimately new record and wrote it right back in, including into a
+// freshly-cleaned Dropbox file. There is now exactly one definition of
+// "the same address," used everywhere a key gets computed or compared.
 function computeKey(e) {
-  const rawAddr = String(e.address || '').trim();
-  const addr = EVM_ADDR_RE.test(rawAddr) ? rawAddr.toLowerCase() : rawAddr;
+  let addr = String(e.address || '').trim();
+  if (EVM_ADDR_RE.test(addr)) {
+    addr = addr.toLowerCase();
+  } else {
+    // Bitcoin/XRPL and other non-EVM addresses stay case-sensitive (case is
+    // meaningful there) — only strip harmless presentation artifacts.
+    addr = addr.replace(/[\s\u200B-\u200D\uFEFF]+/g, '');
+  }
   return String(e.chain || 'unknown').trim().toLowerCase() + '::' + addr;
 }
-
-// A registry key is chain + address. Duplicates are NEVER accepted.
-// EVM addresses are normalized case-insensitively by computeKey(); Bitcoin/XRPL
-// and other non-EVM addresses remain case-sensitive.
+// Kept as a named alias — several call sites read more clearly as
+// "compute the key I dedupe by" than "compute the storage key," and this
+// avoids touching every call site's wording for a purely cosmetic reason.
+// Both names now always return the identical value.
 function normalizeAddressForDedup(e) {
-  let addr = String(e.address || '').trim();
-
-  // EVM: checksum/lowercase variants are the same address.
-  if (EVM_ADDR_RE.test(addr)) return addr.toLowerCase();
-
-  // For all other address formats, remove harmless presentation differences
-  // only. Do NOT lowercase Base58/XRPL addresses because case is meaningful.
-  // This catches whitespace and common copy/paste formatting variants.
-  return addr.replace(/[\\s\\u200B-\\u200D\\uFEFF]+/g, '');
+  const key = computeKey(e);
+  return key.slice(key.indexOf('::') + 2);
 }
-
-function duplicateKey(e) {
-  return String(e.chain || 'unknown').trim().toLowerCase() + '::' + normalizeAddressForDedup(e);
-}
+function duplicateKey(e) { return computeKey(e); }
 
 // Validates one raw (untrusted) record. Returns { ok:true, entry } with a
 // clean, whitelisted-shape object, or { ok:false, reason }. Nothing from the
