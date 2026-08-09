@@ -540,13 +540,31 @@
       font-size: 16px;
     }
   }
+
+  /* ---------- UI mode: Simple / Advanced ---------- */
+  /* Pure display-layer switch — everything tagged .adv-only still exists,
+     still works, still holds its state; Simple mode just doesn't show it.
+     Switching back to Advanced reveals exactly where you left off. */
+  body[data-ui-mode="simple"] .adv-only,
+  body[data-ui-mode="simple"] .adv-panel { display: none !important; }
+  /* The IC3 filing guide is useful to a first-time victim too — keep it visible in Simple mode. */
+  body[data-ui-mode="simple"] #ic3Panel { display: block !important; }
+  body[data-ui-mode="advanced"] .simple-only { display: none !important; }
+  .ui-mode-toggle { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; }
+  .ui-mode-toggle button { border: none; background: transparent; color: var(--text-2); font-size: 12px; padding: 5px 12px; cursor: pointer; }
+  .ui-mode-toggle button.active { background: var(--brass); color: #0e1524; font-weight: 600; }
+  .simple-narrative { border: 1px solid var(--brass); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; font-size: 14px; line-height: 1.5; background: rgba(201,150,42,0.08); }
 </style>
 </head>
 <body>
   <header>
     <p class="eyebrow">Open-Source Chain Forensics</p>
     <h1 class="title">Wallet-Tracer</h1>
-    <p class="subtitle">Trace where stolen crypto went, one wallet at a time — free, private, runs entirely on your own device.</p>
+    <p class="subtitle" id="headerSubtitle">Trace where stolen crypto went, one wallet at a time — free, private, runs entirely on your own device.</p>
+    <div class="ui-mode-toggle" id="uiModeToggle" style="margin-top:10px;">
+      <button type="button" id="uiModeSimpleBtn">Simple</button>
+      <button type="button" id="uiModeAdvancedBtn">Advanced</button>
+    </div>
   </header>
 
   <div class="error-box" id="errorBox" style="display:none"></div>
@@ -582,6 +600,7 @@
        map and side panel (via the .empty class) so the trace input is always
        available for the first investigation. -->
   <div class="main-grid empty" id="mainGrid" style="margin-bottom:20px;">
+    <div class="simple-only simple-narrative" id="simpleNarrative"></div>
     <div class="graph-card">
       <div class="graph-header" id="controlsCollapseHeader" onclick="toggleControlsCollapse()" style="cursor:pointer; user-select:none;">
         <h2 class="card-title"><span id="controlsCollapseArrow" style="display:inline-block; margin-right:6px; font-family:var(--mono); color:var(--brass); font-weight:700; font-size:20px;">&#9660;</span>Network map</h2>
@@ -807,7 +826,7 @@
     </div>
   </details>
 
-  <details class="adv-panel">
+  <details class="adv-panel" id="ic3Panel">
     <summary class="method-summary adv-summary">IC3 Complaint — what they'll ask, before you start <span class="tagbadge">read me first</span></summary>
     <div class="adv-body">
   <p class="card-hint" style="margin: 0 0 12px 4px; color: var(--text-2);">
@@ -860,6 +879,7 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
     <div class="save-row-line">
       <span class="save-status" id="saveStatus">Loading network…</span>
     </div>
+    <div class="adv-only">
     <div class="save-row-line feeder-origin-row">
       <label class="fo-label" for="feederOriginAddr">Feeder origin filter</label>
       <input type="text" id="feederOriginAddr" class="fo-input" spellcheck="false" autocapitalize="off"
@@ -890,6 +910,12 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
         <button class="small backup-btn" id="analyzeClustersBtn" style="background:rgba(192,57,43,0.22); border-color:#c0392b; color:#ffb3a7; font-weight:600;" title="Free, deterministic graph analysis — runs entirely in your browser, no API calls, no cost. Finds which flagged wallets are structurally connected vs. separate, and ranks candidate wallets worth a closer look.">Analyze Clusters 🕸️</button>
       </span>
       <input type="file" id="fileInput" accept="application/json,.json,.gz" style="display:none" />
+    </div>
+    </div>
+    <div class="save-row-line simple-only" id="simpleReportRow">
+      <button class="small backup-btn" id="simpleReportBtn" style="border-color:var(--brass); color:var(--brass); font-weight:600;">Generate my report</button>
+      <button class="small backup-btn" id="restoreBtnSimple">Load a saved case</button>
+      <button class="small backup-btn" id="simpleAiSettingsBtn" style="border-color:#4f9dff; color:#7fb4ff;" title="Bring your own Anthropic API key, so the AI next-step button can suggest what to trace when a trace gets stuck. Calls go directly from this device to api.anthropic.com — nothing passes through any Wallet-Tracer server.">AI settings 🤖</button>
     </div>
     <div class="clear-dock">
       <button class="clear-btn" id="clearDataBtn" title="Erase the saved investigation on this device (asks for confirmation; backups are unaffected)"><span class="ic">🗑</span><span>Clear saved data</span></button>
@@ -1458,6 +1484,41 @@ const CATEGORY_META = {
 };
 
 const STORAGE_KEY = "wallet-network-v1";
+
+// ---------- UI mode: Simple / Advanced ----------
+// Two audiences sharing one engine, not two apps. Simple mode never has its
+// own copy of any scanning/tracing/report logic — it's the exact same
+// functions Advanced uses, just with a different set of controls shown and
+// friendlier framing on the results. That's deliberate: every fix made to
+// the tracing engine this session (anchor-matching, same-hash preference,
+// aggregate-value handling) would otherwise need porting twice by hand, and
+// silently drift out of sync the moment someone forgot to. One source of
+// truth, two front doors.
+const UI_MODE_KEY = "ui-mode-v1";
+let uiMode = "advanced"; // default — nothing changes for an existing user until they switch
+async function loadUiMode() {
+  try { const saved = await idbGet(UI_MODE_KEY); if (saved === "simple" || saved === "advanced") uiMode = saved; }
+  catch { /* keep default */ }
+  document.body.setAttribute("data-ui-mode", uiMode);
+  updateUiModeToggle();
+}
+function setUiMode(mode) {
+  if (mode !== "simple" && mode !== "advanced") return;
+  uiMode = mode;
+  document.body.setAttribute("data-ui-mode", mode);
+  idbSet(UI_MODE_KEY, mode).catch(() => {});
+  updateUiModeToggle();
+  renderAll();
+}
+function updateUiModeToggle() {
+  const s = document.getElementById("uiModeSimpleBtn"), a = document.getElementById("uiModeAdvancedBtn");
+  if (s) s.classList.toggle("active", uiMode === "simple");
+  if (a) a.classList.toggle("active", uiMode === "advanced");
+  const sub = document.getElementById("headerSubtitle");
+  if (sub) sub.textContent = uiMode === "simple"
+    ? "See where your stolen crypto went — free, private, runs entirely on your own device."
+    : "Trace where stolen crypto went, one wallet at a time — free, private, runs entirely on your own device.";
+}
 
 // minTxFilter starts at 2 to MATCH the slider's value="2" and its label. It is
 // raised to 10 automatically in restoreBackup() when a restored network exceeds
@@ -4979,6 +5040,137 @@ Output schema (exact keys):
   "regulatory_referral_note": string | null
 }`;
 
+// ---------- AI "next step" suggestion (post-trace, inconclusive-finish only) ----------
+// Deliberately a SEPARATE prompt/call path from AI_SYSTEM_PROMPT above. That
+// one classifies a single wallet's behavioral pattern. This one looks at an
+// entire just-finished trace that did NOT resolve to a known exchange and
+// recommends which single dead-end wallet is worth manually pursuing next.
+// Different question, different evidence shape, different failure mode
+// (hallucinating a plausible-looking address is a much worse failure here
+// than a wrong pattern label is for the other prompt) — kept separate on
+// purpose rather than overloading one prompt to do both jobs.
+const AI_NEXT_STEP_SYSTEM_PROMPT = `You are a blockchain forensics assistant. A wallet tracer just finished an automated trace that did NOT reach a known exchange endpoint. Your only job is to recommend ONE address, from the exact candidate list provided, as the single best next wallet for a human investigator to manually trace further.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object. No markdown, no preamble, no explanation outside the JSON.
+2. The "address" field MUST be copied character-for-character from the "candidates" list in the input. Do not reconstruct, retype, or infer an address from memory — copy it. If you cannot find a good candidate, set "address" to null rather than guessing or inventing one.
+3. Prefer candidates with "already_known_scam": true — these are wallets already confirmed as attacker infrastructure in a past case (possibly on a different chain), so continuing to follow them is high-value, not redundant.
+4. Prefer candidates that received a large, unexplained share of value and have NOT been scanned onward yet ("scanned_onward": false).
+5. Never recommend an address already listed under "already_resolved" — those are confirmed exchanges, bridges, or verified contracts; recommending them again wastes the investigator's time.
+6. Do not recommend a candidate whose value is dust-level relative to the others in the list.
+7. If genuinely nothing in the candidate list looks promising, say so plainly in "reason" and set "address" to null and "confidence" to "low".
+
+Output EXACTLY this JSON shape, nothing else:
+{
+  "address": string | null,
+  "reason": string,
+  "confidence": "high" | "medium" | "low"
+}`;
+
+// Pulls live data for the prompt above — no hand-maintained lists. Dust
+// filtered by a fixed floor rather than a percentage, since a percentage of
+// a huge root value would still let genuine dust through untouched.
+const NEXT_STEP_DUST_FLOOR = 1;
+const NEXT_STEP_MAX_CANDIDATES = 15; // keeps the prompt (and the cost) small
+function buildNextStepContext(rootAddress, chain, visitedAddresses) {
+  const rootNode = nodeIndex().get(String(rootAddress).toLowerCase());
+  const anchor = rootNode && rootNode.traceAnchor;
+  const victim = findAnchoredVictim();
+
+  const alreadyResolved = [];
+  const candidates = [];
+  for (const addrLower of visitedAddresses) {
+    const n = nodeIndex().get(addrLower);
+    if (!n) continue;
+    if (n.address.toLowerCase() === String(rootAddress).toLowerCase()) continue; // don't suggest re-tracing the root itself
+    const totalValue = Number(n.inValue || 0) + Number(n.outValue || 0);
+    if (totalValue < NEXT_STEP_DUST_FLOOR) continue;
+    const resolvedContract = confirmedContractsCache[computeBoundaryKey(n.chain, n.address)];
+    const resolvedExchange = confirmedExchangesCache[n.address.toLowerCase()];
+    if (resolvedContract || resolvedExchange || n.category === "exchange") {
+      alreadyResolved.push({ address: n.address, chain: n.chain, why: resolvedExchange ? "confirmed exchange" : (resolvedContract ? `confirmed ${resolvedContract.type}` : "auto-classified exchange") });
+      continue;
+    }
+    const scamMatch = confirmedScamCache[n.address.toLowerCase()];
+    candidates.push({
+      address: n.address,
+      chain: n.chain,
+      in_value: Math.round(Number(n.inValue || 0) * 1e6) / 1e6,
+      out_value: Math.round(Number(n.outValue || 0) * 1e6) / 1e6,
+      scanned_onward: !!n.outFetched,
+      is_contract: !!n.isContract,
+      already_known_scam: !!scamMatch,
+    });
+  }
+  candidates.sort((a, b) => (b.in_value + b.out_value) - (a.in_value + a.out_value));
+
+  return {
+    stolen_asset: anchor ? { token: anchor.token || null, amount: anchor.amount || null, date: anchor.dateMs ? new Date(anchor.dateMs).toISOString().slice(0, 10) : null } : null,
+    victim_address: (victim && victim.address) || null,
+    trace_root: rootAddress,
+    trace_root_chain: chain,
+    candidates: candidates.slice(0, NEXT_STEP_MAX_CANDIDATES),
+    already_resolved: alreadyResolved,
+  };
+}
+
+let nextStepSuggestion = null; // { status: "loading"|"ready"|"error"|"none", ... }
+
+async function suggestNextTraceStep(rootAddress, chain, visitedAddresses) {
+  if (!aiIsConfigured()) { openAiSettingsModal(); return; }
+  nextStepSuggestion = { status: "loading" };
+  renderTraceDonePromptRefresh();
+  try {
+    const context = buildNextStepContext(rootAddress, chain, visitedAddresses);
+    if (!context.candidates.length) {
+      nextStepSuggestion = { status: "none", reason: "No candidate wallets from this trace cleared the dust floor or weren't already resolved — nothing left here for AI to weigh in on." };
+      renderTraceDonePromptRefresh();
+      return;
+    }
+    const res = await callAnthropicApi(aiSettingsCache.apiKey, aiSettingsCache.model, AI_NEXT_STEP_SYSTEM_PROMPT, JSON.stringify(context, null, 2));
+    const text = (res.content || []).find(b => b.type === "text")?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { throw new Error("Model did not return valid JSON — rejected."); }
+    if (!("address" in parsed) || !("reason" in parsed) || !("confidence" in parsed)) {
+      throw new Error("Response missing required field(s) — rejected.");
+    }
+
+    const inTok = res.usage?.input_tokens || 0, outTok = res.usage?.output_tokens || 0;
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + inTok;
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + outTok;
+    saveAiSettings();
+
+    if (parsed.address === null) {
+      nextStepSuggestion = { status: "none", reason: parsed.reason || "Model found no promising candidate." };
+      renderTraceDonePromptRefresh();
+      return;
+    }
+    // The anti-hallucination gate: the returned address MUST exact-match
+    // (case-insensitive) one of the candidates actually sent. An address
+    // that's merely well-formed but wasn't in the list is treated as a
+    // fabrication, not a suggestion — LLMs are unreliable at reproducing
+    // long hex strings from inference rather than verbatim copy, and a
+    // wrong address here isn't a cosmetic error, it's a wasted scan cycle
+    // or worse, a confidently-worded trail down a wrong wallet entirely.
+    const match = context.candidates.find(c => c.address.toLowerCase() === String(parsed.address).toLowerCase());
+    if (!match) {
+      throw new Error(`Model returned an address not present in the candidate list sent to it (${parsed.address}) — rejected as a likely fabrication rather than trusted.`);
+    }
+    nextStepSuggestion = {
+      status: "ready",
+      address: match.address, // use OUR stored casing, not whatever the model echoed back
+      chain: match.chain,
+      reason: parsed.reason,
+      confidence: ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "low",
+      rootAddress, rootChain: chain,
+    };
+  } catch (err) {
+    nextStepSuggestion = { status: "error", message: String(err.message || err) };
+  }
+  renderTraceDonePromptRefresh();
+}
+
 // Merge-order rule: confirmed data always wins, AI is never even called for
 // an address that's already known. Mirrors ensureAddressTag's precedence.
 function aiAlreadyConfirmed(node) {
@@ -6271,6 +6463,31 @@ function traceByAmount(startAddr, amount, opts) {
         }
       }
     }
+    // SAME-TRANSACTION-HASH match takes priority over everything below. If
+    // the hop that brought funds INTO `cur` is known, and that exact
+    // transaction hash also shows up as a sample on one of cur's OUTBOUND
+    // edges, that's direct proof this specific transaction moved the money
+    // onward — a far stronger signal than "closest numeric value," and it
+    // sidesteps the failure mode closest-value matching can't handle at all:
+    // a drainer contract that SPLITS funds atomically (the standard pattern
+    // — a main cut plus a commission cut, both legs of the SAME transaction).
+    // When that happens, neither split piece is close to the full carried-in
+    // amount by itself, so closest-value matching can end up preferring an
+    // entirely unrelated transaction that just happens to land nearer in
+    // absolute terms (confirmed case 2026-08-09: real matching transaction
+    // sat right there in the data, same hash as the previous hop, but a
+    // coincidentally-closer unrelated transfer 4 hours later got picked
+    // instead). Only attempted when the incoming hash is a REAL transaction
+    // (not itself an aggregate fallback — an aggregate has no single hash to
+    // match against).
+    const incomingHash = (!path[path.length - 1].isAggregateVal && path[path.length - 1].txHash) || null;
+    let sameHashMatch = null;
+    if (incomingHash) {
+      for (const o of outs) {
+        const s = (o.samples || []).find(x => (x.hash || "").toLowerCase() === incomingHash.toLowerCase());
+        if (s) { sameHashMatch = { o, best: { val: s.value, hash: s.hash } }; break; }
+      }
+    }
     // Match against the best per-edge value (sample-aware, window-aware).
     const scored = outs.map(o => ({ o, best: bestValueFor(o, carry, anchorTs) }));
     // VALUE MATCHING COMES FIRST. If any outbound edge carries the stolen
@@ -6292,7 +6509,7 @@ function traceByAmount(startAddr, amount, opts) {
       : scored.find(s => userFlagged(s.o.cp.toLowerCase()) && s.best.val !== undefined);
     if (flaggedFallback) flaggedFallback.isFallback = true;
     const within = valueMatches.length ? valueMatches : (flaggedFallback ? [flaggedFallback] : []);
-    if (within.length === 0) {
+    if (within.length === 0 && !sameHashMatch) {
       // No clean single-value continuation — the funds pooled/split/swapped
       // here. If THIS wallet has a detected split-converge (funds fan out to
       // several branches that reconverge on one hub), flag it so the exhibit
@@ -6308,9 +6525,19 @@ function traceByAmount(startAddr, amount, opts) {
       }
       break;
     }
-    // closest clean match wins
-    const nextS = within.sort((x,y)=>Math.abs(x.best.val-carry)-Math.abs(y.best.val-carry))[0];
-    path.push({ address: nextS.o.cp, val: nextS.best.val, note: nextS.isFallback ? "Followed via user-marked scam-infrastructure flag (no value-matching transfer recorded on this edge — verify on the explorer)." : "", txHash: nextS.best.hash || null });
+    // closest clean match wins — unless a same-transaction-hash match was
+    // found above, which always wins regardless of value closeness.
+    const nextS = sameHashMatch || within.sort((x,y)=>Math.abs(x.best.val-carry)-Math.abs(y.best.val-carry))[0];
+    // bestValueFor returns hash:null specifically when it fell through to
+    // edge.aggVal (no individual transaction sample matched carry) — that's
+    // a reliable, already-computed signal that nextS.best.val is a MULTI-
+    // TRANSACTION SUM across every transfer ever recorded on this edge, not
+    // a single hop's real transferred amount. Tagging it here so the
+    // exhibit template can render fundamentally different text for it,
+    // instead of the misleading "received ≈ X from previous hop" phrasing
+    // that implies a real transfer happened for that exact figure.
+    const isAggregateVal = !nextS.best.hash;
+    path.push({ address: nextS.o.cp, val: nextS.best.val, isAggregateVal, note: nextS.isFallback ? "Followed via user-marked scam-infrastructure flag (no value-matching transfer recorded on this edge — verify on the explorer)." : "", txHash: nextS.best.hash || null });
     visited.add(nextS.o.cp.toLowerCase());
     // Move the window forward to the transfer we just followed, so each
     // subsequent hop must also occur after it.
@@ -6826,6 +7053,7 @@ function resolveHopHash(prevAddr, curAddr, hopVal) {
 
 function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
   try {
+  const simple = !!(opts && opts.simpleFraming); // friendlier title/intro + a "what to do next" section, same underlying trace/render logic as the standard exhibit
   const start = (startAddr || "").trim();
   if (!isAnyChainAddress(start)) { showError("Enter a valid start wallet address for the chain-of-custody path (0x… EVM, r… XRPL, or 1…/3…/bc1… Bitcoin)."); return; }
   const end = (endAddr || "").trim();
@@ -6919,14 +7147,36 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
       const next = resolvedHops[i + 1];
       if (next && next.hash === resolvedHops[i].hash && next.value) trueVal = next.value;
     }
-    const valLine = trueVal !== null && trueVal !== undefined
-      ? `<div class="val">received ≈ ${fmt(trueVal)} from previous hop</div>` : "";
+    // hop.isAggregateVal (set in findFundPath): this hop's value came from
+    // edge.aggVal because no single transaction sample matched the amount
+    // being traced — meaning hop.val is the SUM of every transaction ever
+    // recorded between these two wallets, not one transfer. Presenting that
+    // as "received ≈ X from previous hop" states a specific transfer amount
+    // that never actually happened as a single event. Real failure this
+    // fixes: a wallet's aggregate inbound total from its predecessor (many
+    // transactions, many unrelated victims) rendered as if it were this
+    // hop's transferred amount, then flagged "doesn't match" against a
+    // transaction that was never going to match a number that was never
+    // real to begin with.
+    const valLine = hop.isAggregateVal
+      ? `<div class="val" style="color:#8a5a00;">⚠ No single transaction matched the traced amount on this edge. ≈${fmt(hop.val)} is the SUM of every transaction recorded between these two wallets — not one transfer. Review the full transaction history on the explorer to identify which specific transaction(s) actually moved the traced funds.</div>`
+      : (trueVal !== null && trueVal !== undefined
+        ? `<div class="val">received ≈ ${fmt(trueVal)} from previous hop</div>` : "");
     // The transaction that moved value INTO this hop — resolveHopHash()
     // handles the value-matching (and the zero-native-value token-transfer
     // case), shared with the law-enforcement packet so both reports cite
     // the identical hash for the identical hop.
     let hashLine = "";
-    if (i > 0) {
+    if (i > 0 && hop.isAggregateVal) {
+      // Deliberately NOT calling resolveHopHash here. It picks the
+      // transaction "closest" to hop.val — but hop.val is an aggregate no
+      // real transaction was ever going to match, so the "closest" pick is
+      // arbitrary and citing it (even with a caveat) implies it's a
+      // meaningful candidate when it isn't. A direct link to review the
+      // wallet's own history is more honest than a specific but arbitrary
+      // transaction hash.
+      hashLine = `<div class="val" style="font-size:11px; color:#97a4bb;">No individual transaction is cited for this hop — see the aggregate warning above. Review <a href="${explorerAddressUrl(chainKey, displayAddr(hop.address))}">this wallet's full transaction history</a> on the explorer to identify the real transaction(s).</div>`;
+    } else if (i > 0) {
       const resolved = resolvedHops[i];
       if (resolved) {
         const txLink = explorerTxUrl(chainKey, resolved.hash);
@@ -7240,8 +7490,8 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
 </style></head>
 <body>
 <div class="page">
-  <h1>Chain of Custody — Fund Path Exhibit</h1>
-  <p class="sub">Generated ${generated} &middot; ${path.length} steps from origin to endpoint${(typeof amount!=="undefined" && amount>0) ? ` &middot; theft-anchored trace following ≈ ${fmt(amount)}${(anchor && anchor.token) ? ` ${escapeHtml(anchor.token)}` : ""}${(anchor && anchor.date) ? ` from ${escapeHtml(anchor.date)}` : ""}` : ""}</p>
+  <h1>${simple ? "Where Your Funds Went" : "Chain of Custody — Fund Path Exhibit"}</h1>
+  <p class="sub">${simple ? `Generated ${generated} — a step-by-step look at where the stolen funds moved.` : `Generated ${generated} &middot; ${path.length} steps from origin to endpoint${(typeof amount!=="undefined" && amount>0) ? ` &middot; theft-anchored trace following ≈ ${fmt(amount)}${(anchor && anchor.token) ? ` ${escapeHtml(anchor.token)}` : ""}${(anchor && anchor.date) ? ` from ${escapeHtml(anchor.date)}` : ""}` : ""}`}</p>
   <div class="caveat">
     This exhibit shows a single outbound value path reconstructed from public blockchain records via Blockscout-family explorers.
     Values are unit-less and may span multiple tokens; they indicate relative scale and direction, not adjudicated dollar amounts.
@@ -7270,6 +7520,22 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
       </div>
     </div>
   </div>
+  ${simple ? `
+  <div class="attestation" style="border-color:#b8860b;">
+    <div class="att-title">What to do next</div>
+    ${endIsExchange
+      ? `Your funds appear to have reached <b>${endNode.autoLabel ? escapeHtml(endNode.autoLabel) : "a cryptocurrency exchange"}</b>. Exchanges can freeze funds and identify account holders when given proper evidence — that's what this report is for.
+        <ul style="margin:10px 0 0 20px; padding:0;">
+          <li>Contact that exchange's compliance/support team and reference this report — most have a dedicated fraud-reporting process.</li>
+          <li>File a report at <a href="https://ic3.gov" target="_blank" rel="noopener">ic3.gov</a> (FBI Internet Crime Complaint Center) — see the filing guide elsewhere on this page for what to have ready.</li>
+          <li>Keep this report and the original transaction records — you may be asked for them again.</li>
+        </ul>`
+      : `The trail in this report doesn't yet show funds reaching a known exchange. That doesn't mean the money is unrecoverable — it may just mean more tracing is needed, or the funds moved through a service not yet identified.
+        <ul style="margin:10px 0 0 20px; padding:0;">
+          <li>File a report at <a href="https://ic3.gov" target="_blank" rel="noopener">ic3.gov</a> regardless — earlier reports help, even before a final destination is confirmed.</li>
+          <li>Keep this report; it can be updated if the trail is extended later.</li>
+        </ul>`}
+  </div>` : ""}
   <div class="footer">Produced with Wallet-Tracer. Every address above is a clickable link to its public block-explorer record for independent verification.</div>
 </div>
 </body></html>`;
@@ -7278,7 +7544,7 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   const ts = new Date().toISOString().replace(/:/g, "-").replace(/\..+/, "").replace("T", "_");
-  a.href = url; a.download = `chain-of-custody_${ts}.html`;
+  a.href = url; a.download = simple ? `where-your-funds-went_${ts}.html` : `chain-of-custody_${ts}.html`;
   a.click(); URL.revokeObjectURL(url);
   } catch (err) {
     showError("Couldn't generate the chain-of-custody exhibit: " + (err && err.message ? err.message : err) + ". Make sure the origin wallet is traced and connected to an endpoint.");
@@ -7399,6 +7665,18 @@ function generateLawEnforcementPacket(startAddr) {
       hopHtml += `<div class="chain-step"><span class="role">${escapeHtml(role)}</span><br><span class="addr">${escapeHtml(displayAddr(hop.address))}</span>`;
       if (isExch) hopHtml += `<div class="tx-detail">${escapeHtml(exchangeIdentity(n, hop.address))}</div>`;
       if (i > 0) {
+        if (hop.isAggregateVal) {
+          // Same aggregate-value problem as the standard exhibit, but higher
+          // stakes here: this HTML/CSV goes to exchanges and law enforcement.
+          // Previously this branch called resolveHopHash anyway, which picks
+          // whichever real transaction happens to be numerically "closest" to
+          // an aggregate that no single transaction was ever going to match —
+          // and cited that arbitrary pick as this hop's TxID/Value with NO
+          // warning, including in the CSV attachment. A wrong-but-confident
+          // citation in a compliance/legal filing is worse than an honest
+          // gap, so this hop is now flagged as unresolved instead of guessing.
+          hopHtml += `<div class="tx-detail">No single transaction identified for this hop — the recorded figure is a multi-transaction aggregate across this wallet pair, not one transfer. Requires manual review of the counterparty's full transaction history before this hop can be cited.</div>`;
+        } else {
         const resolved = resolvedHops[i];
         if (resolved) {
           let val = resolved.value, ts = resolved.ts;
@@ -7408,6 +7686,7 @@ function generateLawEnforcementPacket(startAddr) {
           }
           hopHtml += `<div class="tx-detail">TxID: <span class="mono">${escapeHtml(resolved.hash)}</span>${val ? ` &nbsp;|&nbsp; Value: ${fmtNum(val)}` : ""}${ts ? ` &nbsp;|&nbsp; ${escapeHtml(ts)}` : ""}</div>`;
           csvRows.push([resolved.hash, displayAddr(path[i - 1].address), displayAddr(hop.address), csvNum(val), anchor.token || "", ts || ""]);
+        }
         }
       }
       hopHtml += `</div>`;
@@ -10016,6 +10295,7 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
   };
   const run = { active: true, stopRequested: false, walletsTraced: 0 };
   investigationRun = run;
+  nextStepSuggestion = null; // clear any suggestion left over from a previous trace — it referred to a different run's dead-ends
   document.getElementById("invBar").style.display = "flex";
   const counts = { relays: 0, consolidations: 0, exchanges: 0, bridges: 0, dexes: 0 };
   logTimeline({ type: "start", address: rootAddress, chain,
@@ -10266,7 +10546,16 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
     // ends rather than only inside the collapsed Chain-of-Custody panel. That
     // panel is opened before a trace, not after, so the buttons sitting in it
     // were effectively invisible at the one moment they're wanted.
-    try { renderTraceDonePrompt(rootAddress, !!run.exchangeHalt); } catch (e) {}
+    //
+    // "inconclusive" gates the AI next-step button specifically: NOT a clean
+    // exchange halt (that already IS the answer — money's at a known wall,
+    // no AI needed) and NOT a manual stop (deliberate human action, nothing
+    // to suggest). Only the genuinely-stuck finish — queue ran dry without
+    // reaching a resolved endpoint — is where an AI suggestion adds value,
+    // and it's the only state where the button (and therefore any API call)
+    // is even reachable in the rendered UI.
+    const inconclusive = !run.exchangeHalt && !run.stopRequested && counts.exchanges === 0;
+    try { renderTraceDonePrompt(rootAddress, !!run.exchangeHalt, inconclusive, visited); } catch (e) {}
   }
 }
 
@@ -10274,8 +10563,13 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
 // two Pathfinder scopes plus the full exhibit, pre-filled with the trace root
 // so nothing has to be retyped. Dismissable, and it clears itself as soon as
 // Pathfinder is actually engaged (the Pathfinder banner takes over from there).
-function renderTraceDonePrompt(rootAddress, haltedAtExchange) {
+function renderTraceDonePromptRefresh() {
+  if (lastTraceDonePromptArgs) renderTraceDonePrompt(...lastTraceDonePromptArgs);
+}
+let lastTraceDonePromptArgs = null;
+function renderTraceDonePrompt(rootAddress, haltedAtExchange, inconclusive, visitedAddresses) {
   if (!rootAddress) return;
+  lastTraceDonePromptArgs = [rootAddress, haltedAtExchange, inconclusive, visitedAddresses];
   let bar = document.getElementById("pathfinderPrompt");
   if (!bar) {
     bar = document.createElement("div");
@@ -10286,6 +10580,37 @@ function renderTraceDonePrompt(rootAddress, haltedAtExchange) {
     else document.body.appendChild(bar);
   }
   bar.style.cssText = "display:flex; flex-wrap:wrap; gap:8px; align-items:center; border-color:var(--brass);";
+
+  // AI next-step block only renders on the genuinely-stuck finish: not a
+  // clean exchange halt (that IS the answer already), not a manual stop
+  // (deliberate human action, nothing to suggest). Gating this in the
+  // caller too (see traceFundsAuto) so the API is never even reachable
+  // from a click on the other two finish states, not just hidden by CSS.
+  let aiBlock = "";
+  if (inconclusive && visitedAddresses) {
+    if (!nextStepSuggestion) {
+      aiBlock = `<button class="small" id="pfAskAi" style="border-color:#4f9dff; color:#7fb4ff;">Ask AI for next step</button>`;
+    } else if (nextStepSuggestion.status === "loading") {
+      aiBlock = `<span style="flex-basis:100%; color:var(--text-2); font-size:12px;">Asking AI for a next step…</span>`;
+    } else if (nextStepSuggestion.status === "error") {
+      aiBlock = `<span style="flex-basis:100%; color:#e08a7a; font-size:12px;">AI suggestion failed: ${escapeHtml(nextStepSuggestion.message)}</span>
+        <button class="small" id="pfAskAiRetry" style="border-color:#4f9dff; color:#7fb4ff;">Retry</button>`;
+    } else if (nextStepSuggestion.status === "none") {
+      aiBlock = `<span style="flex-basis:100%; color:var(--text-2); font-size:12px;">AI: ${escapeHtml(nextStepSuggestion.reason)}</span>`;
+    } else if (nextStepSuggestion.status === "ready") {
+      const confColor = { high: "#8fcf7a", medium: "#e0a458", low: "#e08a7a" }[nextStepSuggestion.confidence] || "#e0a458";
+      aiBlock = `
+        <div style="flex-basis:100%; border-top:1px solid var(--line); margin-top:6px; padding-top:8px;">
+          <div style="font-size:12px; color:var(--text-2); margin-bottom:4px;">AI next-step suggestion (verify before relying on it — see reason below)</div>
+          <div style="font-family:'Courier New',monospace; font-size:12px; font-weight:600; overflow-wrap:anywhere;">${escapeHtml(nextStepSuggestion.address)}
+            <span style="color:${confColor}; font-family:inherit; font-weight:400;">&middot; ${escapeHtml(nextStepSuggestion.confidence)} confidence</span></div>
+          <div style="font-size:12px; color:var(--text-2); margin:4px 0 8px;">${escapeHtml(nextStepSuggestion.reason)}</div>
+          <button class="small" id="pfAskAiTrace" style="border-color:var(--brass); color:var(--brass);">Auto-trace this address</button>
+          <button class="small" id="pfAskAiAgain">Refresh suggestion</button>
+        </div>`;
+    }
+  }
+
   bar.innerHTML = `
     <span class="inv-status" style="flex-basis:100%; color:var(--text-2);">
       ${haltedAtExchange
@@ -10296,7 +10621,8 @@ function renderTraceDonePrompt(rootAddress, haltedAtExchange) {
     <button class="small" id="pfPromptStrict" style="border-color:var(--brass); color:var(--brass);">Pathfinder filter</button>
     <button class="small" id="pfPromptAll">Pathfinder (all paths)</button>
     <button class="small" id="pfPromptExhibit">Chain-of-custody exhibit</button>
-    <button class="small" id="pfPromptDismiss">Dismiss</button>`;
+    <button class="small" id="pfPromptDismiss">Dismiss</button>
+    ${aiBlock}`;
   // Seed the shared inputs so both Pathfinder and the exhibit resolve the same
   // origin the trace just used — no retyping, and no chance of the map and the
   // exhibit being built from two different starting wallets.
@@ -10322,6 +10648,16 @@ function renderTraceDonePrompt(rootAddress, haltedAtExchange) {
     (document.getElementById("pathEnd") || {}).value,
     (document.getElementById("pathAmount") || {}).value));
   const b4 = document.getElementById("pfPromptDismiss"); if (b4) b4.addEventListener("click", hide);
+  const askAi = document.getElementById("pfAskAi") || document.getElementById("pfAskAiRetry") || document.getElementById("pfAskAiAgain");
+  if (askAi) askAi.addEventListener("click", () => { nextStepSuggestion = null; suggestNextTraceStep(rootAddress, (nodeIndex().get(String(rootAddress).toLowerCase()) || {}).chain || "flare", visitedAddresses); });
+  const traceIt = document.getElementById("pfAskAiTrace");
+  if (traceIt) traceIt.addEventListener("click", () => {
+    if (!nextStepSuggestion || nextStepSuggestion.status !== "ready") return;
+    const suggestedAddr = nextStepSuggestion.address, suggestedChain = nextStepSuggestion.chain;
+    const anch = rootNode && rootNode.traceAnchor;
+    nextStepSuggestion = null;
+    traceFundsAuto(suggestedAddr, suggestedChain, anch);
+  });
   try { bar.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
 }
 
@@ -10873,6 +11209,12 @@ function renderSidePanel() {
         <p class="card-hint addr-full">${displayAddr(selectedNode.address)}</p>
         ${tagLine}
         ${contractLine}
+        <div class="simple-only" style="display:flex; align-items:center; gap:8px; margin:6px 0 10px; font-size:13px;">
+          <span class="legend-dot" style="background:${(CATEGORY_META[selectedNode.category]||CATEGORY_META.unclassified).color}"></span>
+          <span>${(CATEGORY_META[selectedNode.category]||CATEGORY_META.unclassified).label}</span>
+          <span style="color:var(--text-3);">&middot; in ${(selectedNode.inValue||0).toLocaleString(undefined,{maximumFractionDigits:2})} / out ${(selectedNode.outValue||0).toLocaleString(undefined,{maximumFractionDigits:2})}</span>
+        </div>
+        <div class="adv-only">
         ${aiSuggestionHtml}
         <label>Category</label>
         <div class="custom-select gold-ring" id="categoryDropdown">
@@ -10890,22 +11232,28 @@ function renderSidePanel() {
         </div>
         <label>Notes</label>
         <textarea id="notesArea" placeholder="Case notes on this wallet…" style="min-height:180px;">${selectedNode.notes || ""}</textarea>
-        <label style="margin-top:10px;">Theft anchor (optional) — auto-trace follows ONLY the matching outbound transfer(s) from this wallet</label>
+        </div>
+        <button class="small simple-only" id="simpleScamFlagBtn" style="border-color:#c0392b; color:${selectedNode.category === 'scam' ? '#0e1524' : '#e08a7a'}; background:${selectedNode.category === 'scam' ? '#c0392b' : 'transparent'}; margin-top:6px;">${selectedNode.category === 'scam' ? '✓ Flagged as scam' : 'Flag as scam 🚩'}</button>
+        <label class="adv-only" style="margin-top:10px;">Theft anchor (optional) — auto-trace follows ONLY the matching outbound transfer(s) from this wallet</label>
+        <label class="simple-only" style="margin-top:10px;">What was stolen from this wallet? (helps the trace follow the right money)</label>
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
-          <input id="anchorToken" placeholder="Token (stXRP)" value="${escapeHtml((selectedNode.traceAnchor && selectedNode.traceAnchor.token) || "")}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1; min-width:90px;">
-          <input id="anchorAmount" type="number" placeholder="Amount (8306)" value="${(selectedNode.traceAnchor && selectedNode.traceAnchor.amount) || ""}" style="flex:1; min-width:90px;">
+          <input id="anchorToken" placeholder="${uiMode === 'simple' ? 'What token? (e.g. WFLR)' : 'Token (stXRP)'}" value="${escapeHtml((selectedNode.traceAnchor && selectedNode.traceAnchor.token) || "")}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1; min-width:90px;">
+          <input id="anchorAmount" type="number" placeholder="${uiMode === 'simple' ? 'How much?' : 'Amount (8306)'}" value="${(selectedNode.traceAnchor && selectedNode.traceAnchor.amount) || ""}" style="flex:1; min-width:90px;">
           <input id="anchorDate" type="date" value="${(selectedNode.traceAnchor && selectedNode.traceAnchor.date) || ""}" style="flex:1; min-width:120px;">
         </div>
+        ${uiMode === 'simple' ? `<p class="card-hint" style="margin:4px 0 0;">When was it stolen? (the date field above)</p>` : ""}
         <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+          <div class="adv-only" style="display:flex; gap:8px; flex-wrap:wrap;">
           ${!selectedNode.investigated ? `<button class="small" id="traceBtn">Trace this wallet →</button>` : ""}
-          <button class="small" id="autoTraceBtn" style="border-color:var(--brass); color:var(--brass);">Trace Funds — auto ⛓</button>
           <button class="small" id="excludeBtn" style="border-color:#64718a; color:${selectedNode.userExcluded ? '#0e1524' : '#97a4bb'}; background:${selectedNode.userExcluded ? '#97a4bb' : 'transparent'};">${selectedNode.userExcluded ? '✓ Excluded (mine/clean)' : 'Exclude — mine/clean 🚫'}</button>
           <button class="small" id="exchangeFlagBtn" style="border-color:#4a8ab8; color:${selectedNode.userExchange ? '#0e1524' : '#4a8ab8'}; background:${selectedNode.userExchange ? '#4a8ab8' : 'transparent'};">${selectedNode.userExchange ? '✓ Marked exchange' : 'Mark as exchange ✓'}</button>
           <button class="small" id="verifiedContractBtn" style="border-color:#c9962a; color:${selectedNode.verifiedContract ? '#0e1524' : '#c9962a'}; background:${selectedNode.verifiedContract ? '#c9962a' : 'transparent'};">${selectedNode.verifiedContract ? '✓ Verified contract' : 'Mark as verified contract ✓'}</button>
           <button class="small" id="removeBtn" style="border-color:#a13d2c; color:#e08a7a; padding:4px 9px; font-size:11px;">Remove from network</button>
+          </div>
+          <button class="small" id="autoTraceBtn" style="border-color:var(--brass); color:var(--brass);">${uiMode === 'simple' ? 'Trace my funds' : 'Trace Funds — auto ⛓'}</button>
           <button class="small save-primary" id="saveNowBtn" style="border-color:#2f9e5c; color:#5fd98a;">Save network 💾</button>
         </div>
-        ${flagsHtml}
+        <div class="adv-only">${flagsHtml}</div>
       </div>`;
     const dropdownBtn = document.getElementById("categoryDropdownBtn");
     const dropdownMenu = document.getElementById("categoryDropdownMenu");
@@ -10913,40 +11261,52 @@ function renderSidePanel() {
       e.stopPropagation();
       dropdownMenu.style.display = dropdownMenu.style.display === "none" ? "block" : "none";
     });
+    // Shared by the Advanced dropdown AND the Simple-mode "Flag as scam"
+    // button — same conflict-detection/justification/durable-registry path
+    // either way, so Simple mode gets the exact same safety net rather than
+    // a shortcut that skips it.
+    async function applyCategoryChoice(targetCategory) {
+      const node = nodeIndex().get(selectedNode.address.toLowerCase());
+      const wasScam = node && node.category === "scam";
+      let justification = "";
+      if (targetCategory === "scam") {
+        const conflict = detectScamTagConflict(node);
+        if (conflict) {
+          justification = await promptScamTagConfirmation(conflict);
+          if (!justification) return; // cancelled — category left unchanged
+          const existingNotes = (node.notes || "").trim();
+          setNotes(selectedNode.address, existingNotes ? `${existingNotes}\n\n${justification}` : justification);
+        }
+      }
+      setCategory(selectedNode.address, targetCategory);
+      // Mirror the confirm into the durable cross-case registry, same as
+      // the exchange/contract confirm flows do. Writing on every confirm
+      // (not just the first) keeps `chains` current when the same wallet
+      // gets re-confirmed after surfacing on a new chain — see
+      // saveConfirmedScam's merge behavior.
+      if (targetCategory === "scam") {
+        saveConfirmedScam(selectedNode.address, selectedNode.chain, !!(node && node.isContract), justification);
+      } else if (wasScam) {
+        // Re-tagged AWAY from scam — the durable registry should reflect
+        // that correction, or a future case would keep getting this
+        // address pre-tagged as scam based on a call that's since been
+        // reversed.
+        removeConfirmedScam(selectedNode.address);
+      }
+    }
     dropdownMenu.querySelectorAll(".custom-select-option").forEach((opt) => {
       opt.addEventListener("click", async (e) => {
         e.stopPropagation();
         dropdownMenu.style.display = "none";
-        const targetCategory = opt.getAttribute("data-category");
-        const node = nodeIndex().get(selectedNode.address.toLowerCase());
-        const wasScam = node && node.category === "scam";
-        let justification = "";
-        if (targetCategory === "scam") {
-          const conflict = detectScamTagConflict(node);
-          if (conflict) {
-            justification = await promptScamTagConfirmation(conflict);
-            if (!justification) return; // cancelled — category left unchanged
-            const existingNotes = (node.notes || "").trim();
-            setNotes(selectedNode.address, existingNotes ? `${existingNotes}\n\n${justification}` : justification);
-          }
-        }
-        setCategory(selectedNode.address, targetCategory);
-        // Mirror the confirm into the durable cross-case registry, same as
-        // the exchange/contract confirm flows do. Writing on every confirm
-        // (not just the first) keeps `chains` current when the same wallet
-        // gets re-confirmed after surfacing on a new chain — see
-        // saveConfirmedScam's merge behavior.
-        if (targetCategory === "scam") {
-          saveConfirmedScam(selectedNode.address, selectedNode.chain, !!(node && node.isContract), justification);
-        } else if (wasScam) {
-          // Re-tagged AWAY from scam — the durable registry should reflect
-          // that correction, or a future case would keep getting this
-          // address pre-tagged as scam based on a call that's since been
-          // reversed.
-          removeConfirmedScam(selectedNode.address);
-        }
+        applyCategoryChoice(opt.getAttribute("data-category"));
       });
     });
+    { const ssf = document.getElementById("simpleScamFlagBtn");
+      if (ssf) ssf.addEventListener("click", () => {
+        const node = nodeIndex().get(selectedNode.address.toLowerCase());
+        applyCategoryChoice((node && node.category === "scam") ? "unclassified" : "scam");
+      });
+    }
     document.getElementById("notesArea").addEventListener("input", (e) => setNotes(selectedNode.address, e.target.value));
     const traceBtn = document.getElementById("traceBtn");
     if (traceBtn) traceBtn.addEventListener("click", () => traceWallet(selectedNode.address, selectedNode.chain));
@@ -11300,6 +11660,69 @@ function renderAll() {
   updateFilterUI();
   renderTimeline();
   renderDeployedContractsTable();
+  if (uiMode === "simple") renderSimpleNarrative();
+}
+
+// Plain-language summary of the case, shown above the graph in Simple mode
+// only. MUST use the actual traced custody chain (state.pathfinder.meta),
+// not just any exchange-looking node anywhere in the loaded graph — a real
+// case has dozens of unrelated exchange-tagged wallets sitting in the same
+// map (other people's deposits, coincidental connections), and scanning
+// state.nodes for the first exchange match picks up whichever one happens
+// to sit first in the array. Confirmed failure 2026-08-09: a verified case
+// that traces to Bybit Hot Wallet 1 (hours of manual verification) reported
+// "MEXC Hot Wallet 6" instead — an unrelated node elsewhere in the same
+// 16,538-wallet graph — because the scan-everything approach has no
+// relationship to the actual path the stolen funds took.
+function renderSimpleNarrative() {
+  const box = document.getElementById("simpleNarrative");
+  if (!box) return;
+  const victim = findAnchoredVictim();
+  if (!victim) {
+    box.innerHTML = `Paste the wallet address that was drained, then tap <b>Trace my funds</b> to see where the money went.`;
+    return;
+  }
+  const anchor = victim.traceAnchor || {};
+  const stolenLine = (anchor.amount && anchor.token)
+    ? `${Number(anchor.amount).toLocaleString(undefined,{maximumFractionDigits:6})} ${escapeHtml(anchor.token)}`
+    : "your funds";
+  const scanned = state.nodes.length;
+  // Only trust an exchange result that came from actually walking the
+  // traced funds — state.pathfinder.meta, populated by applyPathfinder()/
+  // computeCustodyMembers(), which is restricted to this specific custody
+  // chain. meta.exchanges is the SAME field the formal exhibit's "Route to
+  // exchange" section is built from — one source of truth, not two.
+  const pf = state.pathfinder;
+  const pfMatchesThisVictim = pf && pf.meta && String(pf.meta.origin || "").toLowerCase() === victim.address.toLowerCase();
+  let exchangeName = null;
+  if (pfMatchesThisVictim) {
+    if (pf.meta.linearEndsAtExchange) {
+      const endNode = nodeIndex().get(String(pf.meta.endpoint).toLowerCase());
+      exchangeName = exchangeIdentity(endNode, pf.meta.endpoint);
+    } else if (pf.meta.exchanges && pf.meta.exchanges.length) {
+      exchangeName = pf.meta.exchanges[0].name;
+    }
+  }
+  if (exchangeName) {
+    box.innerHTML = `Your ${stolenLine} was traced through ${scanned.toLocaleString()} wallets and appears to have reached <b>${escapeHtml(exchangeName)}</b> — a cryptocurrency exchange. Generate a report below and file it with that exchange's compliance team and with <a href="https://ic3.gov" target="_blank" rel="noopener">ic3.gov</a> (see the guide further down this page).`;
+  } else if (pfMatchesThisVictim) {
+    box.innerHTML = `Your ${stolenLine} was traced through ${scanned.toLocaleString()} wallets so far. The trail hasn't reached a known exchange yet in the data scanned — that doesn't mean it won't. Keep tracing, or generate a report with what's been found so far.`;
+  } else if (scanned > 1) {
+    box.innerHTML = `Wallet loaded — ${scanned.toLocaleString()} wallets scanned so far. Tap <b>Pathfinder filter</b> above (or trace again) to see where your funds specifically went; the network map on its own includes wallets unrelated to your case.`;
+  } else {
+    box.innerHTML = `Wallet loaded. Tap <b>Trace my funds</b> to follow where the money went.`;
+  }
+}
+
+// The Simple-mode report — same underlying exhibit engine as Advanced (no
+// duplicated tracing logic), just friendlier framing: less forensic
+// terminology up front, and a short "what to do next" section appended,
+// since that's the question someone in Pe Zet's position actually has after
+// seeing where their funds went.
+function generateSimpleReport() {
+  const victim = findAnchoredVictim();
+  if (!victim) { showError("Set what was stolen first — paste the wallet address, then fill in the token/amount/date fields shown after you select it."); return; }
+  generatePathExhibit(victim.address, null, String(victim.traceAnchor && victim.traceAnchor.amount || ""), { simpleFraming: true });
 }
 
 // ---------- iOS page-zoom guard ----------
@@ -12265,6 +12688,9 @@ document.addEventListener("DOMContentLoaded", () => {
   loadConfirmedExchanges().then(() => renderAll()); // async — re-render once the durable exchange registry lands
   loadConfirmedContracts().then(() => renderAll()); // async — re-render once the durable contract registry lands
   loadConfirmedScam().then(() => renderAll()); // async — re-render once the durable scam registry lands
+  loadUiMode().then(() => renderAll()); // sets data-ui-mode on body before first paint where possible
+  { const us = document.getElementById("uiModeSimpleBtn"); if (us) us.addEventListener("click", () => setUiMode("simple")); }
+  { const ua = document.getElementById("uiModeAdvancedBtn"); if (ua) ua.addEventListener("click", () => setUiMode("advanced")); }
   loadAiSettings(); // async — API key + usage counters, own IndexedDB key, never in a backup export
   toggleControlsCollapse(localStorage.getItem("wt_controls_collapsed") === "1");
   autoSyncBoundaryRegistryIfChanged(); // fire-and-forget — checks the connected master file for changes, silent if nothing changed
@@ -12498,6 +12924,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
   { const ai = document.getElementById("aiSettingsBtn"); if (ai) ai.addEventListener("click", openAiSettingsModal); }
+  { const sai = document.getElementById("simpleAiSettingsBtn"); if (sai) sai.addEventListener("click", openAiSettingsModal); }
   { const cb = document.getElementById("analyzeClustersBtn"); if (cb) cb.addEventListener("click", openClusterAnalysisModal); }
   document.getElementById("exhibitFlaggedBtn").addEventListener("click", () => generateExhibit(true));
   document.getElementById("exhibitFullBtn").addEventListener("click", () => generateExhibit(false));
@@ -12590,6 +13017,8 @@ document.addEventListener("DOMContentLoaded", () => {
     try { applyPathfinder("full"); } catch (e) { showError("Pathfinder failed: " + (e && e.message ? e.message : e)); }
   });
   document.getElementById("restoreBtn").addEventListener("click", () => document.getElementById("fileInput").click());
+  { const rs = document.getElementById("restoreBtnSimple"); if (rs) rs.addEventListener("click", () => document.getElementById("fileInput").click()); }
+  { const sr = document.getElementById("simpleReportBtn"); if (sr) sr.addEventListener("click", generateSimpleReport); }
   document.getElementById("fileInput").addEventListener("change", (e) => { const f = e.target.files[0]; if (f) restoreBackup(f); e.target.value = ""; });
 });
 </script>
