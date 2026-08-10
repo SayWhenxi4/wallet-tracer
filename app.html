@@ -371,6 +371,21 @@
     0%, 100% { box-shadow: 0 0 0 0 rgba(95,217,138,0.35); border-color: #2f9e5c; }
     50% { box-shadow: 0 0 10px 2px rgba(95,217,138,0.45); border-color: #5fd98a; }
   }
+  /* Lightweight version of the same pulse for inline text/status lines and
+     buttons where a full ai-card doesn't fit — the trace status bar, the
+     post-trace "Asking AI…" lines, the setup-assist button while it reads.
+     Same accent color as ai-card-loading so it reads as one consistent
+     "AI is working" language across the app rather than several different
+     cues the user has to separately learn. Added because an AI call that
+     runs silently mid-trace (the inline corridor-fallback resolver) had NO
+     visual cue at all before this — it just paused with no explanation. */
+  .ai-thinking { color: #5fd98a !important; animation: aiTextPulse 1.3s ease-in-out infinite; }
+  @keyframes aiTextPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  button.ai-thinking-btn { animation: aiBtnPulse 1.3s ease-in-out infinite; }
+  @keyframes aiBtnPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(95,217,138,0.35); border-color: #2f9e5c !important; }
+    50% { box-shadow: 0 0 8px 2px rgba(95,217,138,0.5); border-color: #5fd98a !important; }
+  }
   .ai-card-collapsed { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
   .ai-card-collapsed:hover { background: rgba(79,157,255,0.08); }
   .ai-badge {
@@ -579,6 +594,8 @@
     <span class="inv-status" id="invStatus">Investigation running…</span>
     <button class="small" id="invStopBtn">Stop trace</button>
   </div>
+
+  <div class="inv-bar" id="exchangeFoundBar" style="display:none; border-color:#2f9e5c; flex-wrap:wrap;"></div>
 
   <div class="inv-bar" id="pathBar" data-open="0" style="display:none; border-color: var(--brass); flex-wrap: wrap;">
     <span class="inv-status" style="flex-basis:100%; color: var(--text-2);">Chain-of-custody path — enter the origin (victim/source) wallet, and optionally a specific endpoint. Leave endpoint blank to auto-stop at the first exchange reached.</span>
@@ -914,6 +931,7 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
     </div>
     <div class="save-row-line simple-only" id="simpleReportRow">
       <button class="small backup-btn" id="simpleReportBtn" style="border-color:var(--brass); color:var(--brass); font-weight:600;">Generate my report</button>
+      <button class="small backup-btn" id="downloadBtnSimple" style="border-color:#e8c14a; color:#f3d878;" title="Saves everything you've traced so far to a file on this device — the only copy of your research. Same file the Advanced backup button produces.">Save a backup of my case</button>
       <button class="small backup-btn" id="restoreBtnSimple">Load a saved case</button>
       <button class="small backup-btn" id="simpleAiSettingsBtn" style="border-color:#4f9dff; color:#7fb4ff;" title="Bring your own Anthropic API key, so the AI next-step button can suggest what to trace when a trace gets stuck. Calls go directly from this device to api.anthropic.com — nothing passes through any Wallet-Tracer server.">AI settings 🤖</button>
     </div>
@@ -956,21 +974,24 @@ STEP 6 — Other information (paste wallet addresses / tx hashes / bridge detail
 const CHAINS = {
   // host = API source (Blockscout). linkHost = where user-facing links open —
   // flarescan.com is friendlier for reading; the API keeps using Blockscout.
-  flare: { label: "Flare (FLR)", host: "flare-explorer.flare.network", linkHost: "flarescan.com", chainId: 14 },
-  songbird: { label: "Songbird (SGB)", host: "songbird-explorer.flare.network", linkHost: "songbird.flarescan.com", chainId: 19 },
-  ethereum: { label: "Ethereum", host: "eth.blockscout.com", linkHost: "etherscan.io", chainId: 1 },
-  base: { label: "Base", host: "base.blockscout.com", chainId: 8453 },
-  polygon: { label: "Polygon", host: "polygon.blockscout.com", chainId: 137 },
-  gnosis: { label: "Gnosis Chain", host: "gnosis.blockscout.com", chainId: 100 },
-  optimism: { label: "Optimism", host: "optimism.blockscout.com", chainId: 10 },
-  arbitrum: { label: "Arbitrum One", host: "arbitrum.blockscout.com", chainId: 42161 },
-  bsc: { label: "BNB Smart Chain (BNB)", host: "bnb.blockscout.com", linkHost: "bscscan.com", chainId: 56, useEtherscanV2: true },
+  // native = this chain's native gas currency symbol — needed to correctly
+  // label a transfer that carries no ERC-20 token field (see the CSV token
+  // fix below): no .token field means native currency, not "no data".
+  flare: { label: "Flare (FLR)", host: "flare-explorer.flare.network", linkHost: "flarescan.com", chainId: 14, native: "FLR" },
+  songbird: { label: "Songbird (SGB)", host: "songbird-explorer.flare.network", linkHost: "songbird.flarescan.com", chainId: 19, native: "SGB" },
+  ethereum: { label: "Ethereum", host: "eth.blockscout.com", linkHost: "etherscan.io", chainId: 1, native: "ETH" },
+  base: { label: "Base", host: "base.blockscout.com", chainId: 8453, native: "ETH" },
+  polygon: { label: "Polygon", host: "polygon.blockscout.com", chainId: 137, native: "POL" },
+  gnosis: { label: "Gnosis Chain", host: "gnosis.blockscout.com", chainId: 100, native: "xDAI" },
+  optimism: { label: "Optimism", host: "optimism.blockscout.com", chainId: 10, native: "ETH" },
+  arbitrum: { label: "Arbitrum One", host: "arbitrum.blockscout.com", chainId: 42161, native: "ETH" },
+  bsc: { label: "BNB Smart Chain (BNB)", host: "bnb.blockscout.com", linkHost: "bscscan.com", chainId: 56, useEtherscanV2: true, native: "BNB" },
   // --- Non-EVM: XRP Ledger -------------------------------------------------
   // XRPL has no Blockscout/Etherscan API. It speaks JSON-RPC (account_tx) to a
   // rippled/Clio server. `kind` routes it to the XRPL adapter below; `supports`
   // switches off the EVM-only features so the UI degrades cleanly.
   xrpl: { label: "XRP Ledger (XRP)", kind: "xrpl",
-          host: "livenet.xrpl.org", linkHost: "xrpscan.com", chainId: null,
+          host: "livenet.xrpl.org", linkHost: "xrpscan.com", chainId: null, native: "XRP",
           rpc: "https://xrplcluster.com/",
           supports: { contractIntel: false, internalTxs: false, tokenTxs: false, destinationTags: true } },
   // --- Non-EVM: Bitcoin ----------------------------------------------------
@@ -980,7 +1001,7 @@ const CHAINS = {
   // transaction into per-address transfer items via proportional attribution
   // (documented in fetchBtcAddressTxs). Values are in BTC.
   btc: { label: "Bitcoin (BTC)", kind: "btc",
-         host: "mempool.space", linkHost: "mempool.space", chainId: null,
+         host: "mempool.space", linkHost: "mempool.space", chainId: null, native: "BTC",
          api: "https://mempool.space/api", apiFallback: "https://blockstream.info/api",
          supports: { contractIntel: false, internalTxs: false, tokenTxs: false, destinationTags: false } },
 };
@@ -1530,7 +1551,7 @@ function updateUiModeToggle() {
 // confirm which build is running. Bumped whenever features land.
 const WT_BUILD = "2026-07-26 · pathfinder + exchange-registry";
 try { console.info("Wallet-Tracer build:", WT_BUILD); } catch (e) {}
-const state = { chainKey: "flare", nodes: [], edges: [], selectedAddress: null, loading: false, minTxFilter: 2, minValueFilter: 9999999999, showBoundary: true, boundaryMinValue: 9999999999, flaggedConnectedOnly: true, deployedContracts: [], deployerCursors: {}, timeline: [], pathfinder: null };
+const state = { chainKey: "flare", nodes: [], edges: [], selectedAddress: null, loading: false, minTxFilter: 2, minValueFilter: 999999, showBoundary: true, boundaryMinValue: 999999, flaggedConnectedOnly: true, deployedContracts: [], deployerCursors: {}, timeline: [], pathfinder: null };
 
 // ---------- BREAKPOINT custody-break registry: local cache + auto-sync ----------
 // Read-only from Wallet-Tracer's side. The registry itself is only ever
@@ -2886,9 +2907,47 @@ function scanModePages() { return SCAN_MODES[getScanMode()].pages; }
 // they hit the page cap rather than because they ran out of data. investigate()
 // resets this before a wallet and reads it after, so the node can be honestly
 // marked as partially fetched.
-let fetchTruncation = { truncated: false, pages: 0 };
-function resetTruncation() { fetchTruncation = { truncated: false, pages: 0 }; }
+//
+// noteTruncationReason() is a SEPARATE, more serious signal: a fetch loop
+// that broke early because of a rate-limit or a transient HTTP/parse error,
+// as opposed to hitting a deliberate page cap or genuinely running out of
+// data. Both existing "break; keep what we have" branches (and their
+// Etherscan-V2/Routescan siblings) silently returned partial data as if it
+// were complete — no flag, no log line. Confirmed real-world consequence:
+// the same wallet, same anchor, fetched twice in one session, gave two
+// different answers (one run missed the actual theft transaction entirely).
+// Anything reading fetchTruncation.reason should treat a "no match" result
+// from this wallet as UNVERIFIED, not as a confirmed absence.
+let fetchTruncation = { truncated: false, pages: 0, reason: null };
+function resetTruncation() { fetchTruncation = { truncated: false, pages: 0, reason: null }; }
 function noteTruncated(pages) { fetchTruncation.truncated = true; fetchTruncation.pages = Math.max(fetchTruncation.pages, pages || 0); }
+function noteTruncationReason(reason) { if (!fetchTruncation.reason || reason === "rate-limit") fetchTruncation.reason = reason; } // rate-limit is the most actionable reason to surface — let it win if multiple calls hit different issues
+
+// ---------- In-session investigate() cache ----------
+// In-memory only — never persisted to IndexedDB or the exported network
+// JSON, so backup/export size and shape are unaffected. Confirmed real case
+// (2026-08-10): re-running the same auto-trace against the same root
+// minutes apart re-fetched every already-scanned wallet from the network
+// from scratch — same address, same chain, same fetch window — because
+// investigate() had no memory of a call it had already made this session.
+// Keyed on the exact fetch window requested, not just the address: a wider
+// or narrower window (e.g. the deeper-retry fetch added for corridor
+// fallbacks below) is legitimately a different request and always goes to
+// the network. A page-capped/truncated result is deliberately NOT cached —
+// see the fetchTruncation comment above: a truncated fetch is UNVERIFIED,
+// not a confirmed answer, and deserves a real retry rather than being
+// served back as if it were settled.
+const investigateCache = new Map();
+const INVESTIGATE_CACHE_FRESH_MS = 30 * 60 * 1000; // long enough to absorb re-running a trace right after the first; short enough that a case revisited hours later gets current chain data
+function investigateCacheKey(addr, chain, fetchOpts) {
+  return JSON.stringify({
+    a: addr.toLowerCase(), c: chain,
+    sb: (fetchOpts && fetchOpts.sinceBlock) || null,
+    bt: (fetchOpts && fetchOpts.stopBeforeTs) || null,
+    mp: (fetchOpts && fetchOpts.maxPages) || null,
+    sa: !!(fetchOpts && fetchOpts.sortAsc),
+  });
+}
 // Resolve the page cap for a fetch. Precedence, strictest intent first:
 //   1. An explicit per-call maxPages — auto-trace's deliberate deep-wallet
 //      sampling budget. The caller has already reasoned about depth; obey it.
@@ -2901,9 +2960,77 @@ function noteTruncated(pages) { fetchTruncation.truncated = true; fetchTruncatio
 //   3. The global scan mode.
 function capFor(opts, hardDefault) {
   if (opts && opts.maxPages) return opts.maxPages;
-  if (opts && opts.stopBeforeTs) return hardDefault || 300;
+  // sinceBlock gets the same generous treatment as stopBeforeTs, and for the
+  // same reason: both mean "we already know exactly where to start reading,"
+  // so a shallow scan-mode setting truncating the page count would throw away
+  // the one thing that made this fetch precise in the first place. Confirmed
+  // gap: the ascending-from-anchor fetch (manual-scan fallback, and the
+  // AI-diagnosis "Deep scan + re-trace" action) computed the right starting
+  // block correctly, then still got capped to whatever the UI's scan-mode
+  // dropdown happened to be set to (as low as 1 page under Light mode).
+  if (opts && (opts.stopBeforeTs || opts.sinceBlock)) return hardDefault || 300;
   const m = scanModePages();
   return m || hardDefault || 300;
+}
+
+// ---------- Anchor-aware windowed fetch: block-number lookup ----------
+// Every fetch below has always paged newest-first from block 0 (startblock=0,
+// sort=desc), relying on stopBeforeTs to bail out once pages age past the
+// theft date. That works fine for a wallet that went quiet soon after the
+// theft — but for a long-lived, STILL-ACTIVE hub (the 998e consolidation
+// wallet is a real case: active from 2025-07-16 through today), newest-first
+// pagination has to page back through everything that's happened SINCE the
+// theft before ever reaching the theft-era window, and a page cap can run
+// out before it gets there. Confirmed failure: a deep scan of that hub
+// reproduced OKX's own disputed/reversed conduit finding instead of the
+// verified Bybit route, because the Bybit-bound transfer's page was never
+// reached within the cap.
+//
+// The real fix: know the block number the traced value actually ARRIVED at
+// this hop, and page forward (ascending) from there — the theft-relevant
+// window is then the FIRST thing fetched, not something hopefully still
+// within reach after a year of subsequent activity gets paged through first.
+//
+// This lookup is opportunistic and fully fail-safe: any failure (host
+// doesn't support the action, network error, unexpected response shape)
+// returns null, and every call site below falls straight back to the
+// existing stopBeforeTs/sort=desc behavior — nothing regresses if this
+// doesn't work on a given host.
+const blockNearCache = new Map(); // "chain:hourBucket" -> blockNumber|null, one lookup per host per hour-ish window
+// Diagnostic-only: buildDeepFetchOpts logs the outcome of every attempt (see
+// below) so the exported timeline shows directly, per hop, whether the
+// ascending-from-arrival fetch actually activated and why not when it
+// didn't — instead of needing to infer it indirectly from scan patterns.
+async function blockNumberNear(chain, timestampMs) {
+  if (!timestampMs || !Number.isFinite(timestampMs)) return { block: null, reason: "no timestamp available for this hop" };
+  const c = CHAINS[chain];
+  if (!c || !c.host) return { block: null, reason: "no host configured for this chain" };
+  const hourBucket = Math.floor(timestampMs / 36e5);
+  const cacheKey = `${chain}:${hourBucket}`;
+  if (blockNearCache.has(cacheKey)) return blockNearCache.get(cacheKey);
+  let out = { block: null, reason: null };
+  try {
+    const tsSeconds = Math.floor(timestampMs / 1000);
+    const url = `https://${c.host}/api?module=block&action=getblocknobytime&timestamp=${tsSeconds}&closest=before`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      out.reason = `HTTP ${res.status} from ${c.host}`;
+    } else {
+      const data = await res.json();
+      // Blockscout's actual response nests the value: {"result":{"blockNumber":"23592675"}}
+      // — NOT a flat {"result":"23592675"} the way it might look from the classic
+      // Etherscan docs. Reading data.result directly and calling Number() on it
+      // silently produced NaN on every call, every hop, every chain — this is why
+      // the ascending-fetch path never once activated. Handle both shapes
+      // defensively in case any host really does return it flat.
+      const raw = data && data.result && typeof data.result === "object" ? data.result.blockNumber : (data && data.result);
+      const n = raw != null ? Number(raw) : NaN;
+      if (Number.isFinite(n) && n > 0) out.block = n;
+      else out.reason = `unexpected response shape: ${JSON.stringify(data).slice(0, 200)}`;
+    }
+  } catch (e) { out.reason = `fetch/parse threw: ${e.message}`; }
+  blockNearCache.set(cacheKey, out);
+  return out;
 }
 
 // Fallback source: flarescan.com (Routescan) — a completely separate service
@@ -2928,15 +3055,17 @@ async function fetchAllPagesRoutescan(chainId, address, onProgress, startParams,
   while (pagesFetched < MAX_PAGES) {
     pagesFetched++;
     if (pagesFetched > 1) await sleep(REQUEST_DELAY_MS);
-    const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=desc&apikey=placeholder`;
+    const url = `${baseUrl}?module=account&action=txlist&address=${address}&startblock=${(opts && opts.sinceBlock) || 0}&endblock=99999999&page=${page}&offset=${offset}&sort=${(opts && opts.sortAsc) ? 'asc' : 'desc'}&apikey=placeholder`;
     const res = await fetch(url);
     if (!res.ok) {
       if (pagesFetched === 1 && !startParams) throw new Error(`Routescan fallback returned ${res.status}`);
+      noteTruncationReason(res.status === 429 ? "rate-limit" : "error");
       break;
     }
     let json;
     try { json = await res.json(); } catch {
       if (pagesFetched === 1 && !startParams) throw new Error("Routescan fallback returned an unexpected response.");
+      noteTruncationReason("error");
       break;
     }
     const result = Array.isArray(json.result) ? json.result : [];
@@ -2984,9 +3113,11 @@ async function fetchAllPages(baseUrl, onProgress, startParams, opts) {
         if (page === 1 && !startParams) {
           throw new Error(`Explorer is rate-limiting requests (HTTP ${res.status}). Wait a while before trying again — this can take anywhere from a few minutes to about an hour.`);
         }
+        noteTruncationReason("rate-limit");
         break; // rate-limited partway through — keep what we already have
       }
       if (page === 1 && !startParams) throw new Error(`Explorer returned ${res.status}`);
+      noteTruncationReason("error");
       break; // later page failed for another reason — keep what we have rather than losing it all
     }
     let json;
@@ -2997,6 +3128,7 @@ async function fetchAllPages(baseUrl, onProgress, startParams, opts) {
       if (page === 1 && !startParams) {
         throw new Error("Explorer returned an unexpected response (possibly a rate-limit page). Wait a while before trying again.");
       }
+      noteTruncationReason("error");
       break;
     }
     items = items.concat(json.items || []);
@@ -3123,11 +3255,11 @@ async function fetchInternalTxsRoutescan(chainId, address, onProgress, opts) {
   while (pagesFetched < MAX_PAGES) {
     pagesFetched++;
     if (pagesFetched > 1) await sleep(REQUEST_DELAY_MS);
-    const url = `${baseUrl}?module=account&action=txlistinternal&address=${address}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=desc&apikey=placeholder`;
+    const url = `${baseUrl}?module=account&action=txlistinternal&address=${address}&startblock=${(opts && opts.sinceBlock) || 0}&endblock=99999999&page=${page}&offset=${offset}&sort=${(opts && opts.sortAsc) ? 'asc' : 'desc'}&apikey=placeholder`;
     const res = await fetch(url);
-    if (!res.ok) break;
+    if (!res.ok) { noteTruncationReason(res.status === 429 ? "rate-limit" : "error"); break; }
     let json;
-    try { json = await res.json(); } catch { break; }
+    try { json = await res.json(); } catch { noteTruncationReason("error"); break; }
     const result = Array.isArray(json.result) ? json.result : [];
     const normalized = result.map(tx => ({
       from: tx.from ? { hash: tx.from } : null,
@@ -3161,11 +3293,11 @@ async function fetchTokenTransfersRoutescan(chainId, address, onProgress, opts) 
   while (pagesFetched < MAX_PAGES) {
     pagesFetched++;
     if (pagesFetched > 1) await sleep(REQUEST_DELAY_MS);
-    const url = `${baseUrl}?module=account&action=tokentx&address=${address}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=desc&apikey=placeholder`;
+    const url = `${baseUrl}?module=account&action=tokentx&address=${address}&startblock=${(opts && opts.sinceBlock) || 0}&endblock=99999999&page=${page}&offset=${offset}&sort=${(opts && opts.sortAsc) ? 'asc' : 'desc'}&apikey=placeholder`;
     const res = await fetch(url);
-    if (!res.ok) break;
+    if (!res.ok) { noteTruncationReason(res.status === 429 ? "rate-limit" : "error"); break; }
     let json;
-    try { json = await res.json(); } catch { break; }
+    try { json = await res.json(); } catch { noteTruncationReason("error"); break; }
     const result = Array.isArray(json.result) ? json.result : [];
     const normalized = result.map(tt => ({
       from: tt.from ? { hash: tt.from } : null,
@@ -3225,9 +3357,9 @@ async function fetchTxsEtherscanV2(chainId, address, onProgress, opts) {
   let all = []; let page = 1; const offset = 100, MAX_PAGES = capFor(opts, 300), DELAY = 400; let n = 0; let hitCap = false;
   while (n < MAX_PAGES) {
     n++; if (n > 1) await sleep(DELAY);
-    const url = `${ETHERSCAN_V2}?chainid=${chainId}&module=account&action=txlist&address=${address}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=desc&apikey=${key}`;
-    const res = await fetch(url); if (!res.ok) { if (n === 1) throw new Error(`BscScan returned ${res.status}`); break; }
-    let json; try { json = await res.json(); } catch { if (n === 1) throw new Error("BscScan returned an unexpected response."); break; }
+    const url = `${ETHERSCAN_V2}?chainid=${chainId}&module=account&action=txlist&address=${address}&startblock=${(opts && opts.sinceBlock) || 0}&endblock=99999999&page=${page}&offset=${offset}&sort=${(opts && opts.sortAsc) ? 'asc' : 'desc'}&apikey=${key}`;
+    const res = await fetch(url); if (!res.ok) { if (n === 1) throw new Error(`BscScan returned ${res.status}`); noteTruncationReason(res.status === 429 ? "rate-limit" : "error"); break; }
+    let json; try { json = await res.json(); } catch { if (n === 1) throw new Error("BscScan returned an unexpected response."); noteTruncationReason("error"); break; }
     if (json.message && /invalid api key|rate limit/i.test(json.message)) throw new Error(`BscScan: ${json.message}`);
     const result = Array.isArray(json.result) ? json.result : [];
     all = all.concat(result.map(tx => ({
@@ -3248,9 +3380,9 @@ async function fetchTokenTransfersEtherscanV2(chainId, address, onProgress, opts
   let all = []; let page = 1; const offset = 100, MAX_PAGES = capFor(opts, 300), DELAY = 400; let n = 0; let hitCap = false;
   while (n < MAX_PAGES) {
     n++; if (n > 1) await sleep(DELAY);
-    const url = `${ETHERSCAN_V2}?chainid=${chainId}&module=account&action=tokentx&address=${address}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=desc&apikey=${key}`;
-    const res = await fetch(url); if (!res.ok) break;
-    let json; try { json = await res.json(); } catch { break; }
+    const url = `${ETHERSCAN_V2}?chainid=${chainId}&module=account&action=tokentx&address=${address}&startblock=${(opts && opts.sinceBlock) || 0}&endblock=99999999&page=${page}&offset=${offset}&sort=${(opts && opts.sortAsc) ? 'asc' : 'desc'}&apikey=${key}`;
+    const res = await fetch(url); if (!res.ok) { noteTruncationReason(res.status === 429 ? "rate-limit" : "error"); break; }
+    let json; try { json = await res.json(); } catch { noteTruncationReason("error"); break; }
     const result = Array.isArray(json.result) ? json.result : [];
     all = all.concat(result.map(tt => ({
       from: tt.from ? { hash: tt.from } : null,
@@ -3272,9 +3404,9 @@ async function fetchInternalTxsEtherscanV2(chainId, address, onProgress, opts) {
   let all = []; let page = 1; const offset = 100, MAX_PAGES = capFor(opts, 300), DELAY = 400; let n = 0; let hitCap = false;
   while (n < MAX_PAGES) {
     n++; if (n > 1) await sleep(DELAY);
-    const url = `${ETHERSCAN_V2}?chainid=${chainId}&module=account&action=txlistinternal&address=${address}&startblock=0&endblock=99999999&page=${page}&offset=${offset}&sort=desc&apikey=${key}`;
-    const res = await fetch(url); if (!res.ok) break;
-    let json; try { json = await res.json(); } catch { break; }
+    const url = `${ETHERSCAN_V2}?chainid=${chainId}&module=account&action=txlistinternal&address=${address}&startblock=${(opts && opts.sinceBlock) || 0}&endblock=99999999&page=${page}&offset=${offset}&sort=${(opts && opts.sortAsc) ? 'asc' : 'desc'}&apikey=${key}`;
+    const res = await fetch(url); if (!res.ok) { noteTruncationReason(res.status === 429 ? "rate-limit" : "error"); break; }
+    let json; try { json = await res.json(); } catch { noteTruncationReason("error"); break; }
     const result = Array.isArray(json.result) ? json.result : [];
     all = all.concat(result.map(tx => ({
       from: tx.from ? { hash: tx.from } : null,
@@ -4682,9 +4814,9 @@ function removeConfirmedExchange(address) {
 //      unlike ensureAddressTag's fire-and-forget explorer lookups, AI calls
 //      cost the user real money and should only happen when they ask.
 const AI_SETTINGS_KEY = "ai-settings-v1";
-let aiSettingsCache = { apiKey: "", model: "claude-sonnet-4-6", totalInputTokens: 0, totalOutputTokens: 0 };
+let aiSettingsCache = { apiKey: "", model: "claude-sonnet-5", totalInputTokens: 0, totalOutputTokens: 0 };
 async function loadAiSettings() {
-  try { aiSettingsCache = Object.assign({ apiKey: "", model: "claude-sonnet-4-6", totalInputTokens: 0, totalOutputTokens: 0 }, (await idbGet(AI_SETTINGS_KEY)) || {}); }
+  try { aiSettingsCache = Object.assign({ apiKey: "", model: "claude-sonnet-5", totalInputTokens: 0, totalOutputTokens: 0 }, (await idbGet(AI_SETTINGS_KEY)) || {}); }
   catch { /* keep defaults */ }
 }
 function saveAiSettings() {
@@ -4694,8 +4826,10 @@ function aiIsConfigured() { return !!(aiSettingsCache.apiKey && aiSettingsCache.
 
 // $/million tokens — update if Anthropic's published rates change.
 // Shown to the user as an estimate, not a guaranteed final cost.
+// NOTE: Sonnet 5's $2/$10 is an introductory rate through Aug 31, 2026;
+// standard pricing becomes $3/$15 on Sep 1, 2026 — revisit this number then.
 const AI_MODEL_PRICING = {
-  "claude-sonnet-4-6": { input: 2.00, output: 10.00, label: "Sonnet (balanced — recommended)" },
+  "claude-sonnet-5": { input: 2.00, output: 10.00, label: "Sonnet (balanced — recommended)" },
   "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00, label: "Haiku (cheapest — simple pattern checks)" },
 };
 
@@ -4897,7 +5031,7 @@ function openAiSettingsModal() {
   const overlay = document.createElement("div");
   overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
   const totalTok = (aiSettingsCache.totalInputTokens || 0) + (aiSettingsCache.totalOutputTokens || 0);
-  const pricing = AI_MODEL_PRICING[aiSettingsCache.model] || AI_MODEL_PRICING["claude-sonnet-4-6"];
+  const pricing = AI_MODEL_PRICING[aiSettingsCache.model] || AI_MODEL_PRICING["claude-sonnet-5"];
   const estCost = ((aiSettingsCache.totalInputTokens || 0) * pricing.input + (aiSettingsCache.totalOutputTokens || 0) * pricing.output) / 1_000_000;
   overlay.innerHTML = `
     <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:460px;width:100%;padding:20px;">
@@ -5040,6 +5174,89 @@ Output schema (exact keys):
   "regulatory_referral_note": string | null
 }`;
 
+// ---------- AI theft-anchor setup assist (pre-trace, first thing a new user hits) ----------
+// A brand-new BYOK user's very first task is filling in three raw fields
+// (token / amount / date) with zero guidance on what counts as valid input —
+// no help, no examples beyond a placeholder. This is the one part of the
+// flow the mechanical timeline narration (logTimeline) never touches, since
+// it doesn't exist yet at this point. Lets the user describe what happened
+// in their own words and extracts the three fields instead. Output is
+// written into the SAME editable inputs the manual flow uses — never
+// auto-submitted — so a wrong extraction is just as easy to fix as a typo
+// would be, and the existing persistAnchor/traceFundsAuto path is untouched.
+const AI_ANCHOR_PARSE_SYSTEM_PROMPT = `You are helping a non-technical crime victim set up a blockchain trace. They will describe, in their own words, what was stolen from them. Extract exactly three fields a wallet tracer needs: the token/asset symbol, the numeric amount, and the date it happened.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object. No markdown, no preamble, no explanation outside the JSON.
+2. token: the asset symbol/ticker as the user would recognize it (e.g. "XRP", "stXRP", "USDT", "ETH"). Preserve their casing/spelling if it looks like a real symbol; do not invent a ticker they didn't imply. Null if not stated or too ambiguous to guess.
+3. amount: a plain number, no commas or currency symbols. Null if not stated. If the user gives a USD value instead of a token amount ("about $25,000 worth"), leave amount null and say so in the note — this tool needs the token quantity, not a dollar estimate, and a wrong guess here would misdirect the trace.
+4. date: ISO format YYYY-MM-DD. Resolve relative dates ("last Tuesday", "about two weeks ago") against the reference date you're given. Null if genuinely not stated or too vague to resolve (e.g. "a while back").
+5. confidence: "high" only if all three fields were stated clearly and unambiguously. "medium" if you had to resolve a relative date or infer a token spelling. "low" if any field is a guess you're not confident in.
+6. note: one short plain-language sentence for the user — confirm what you understood, or explain what's missing/unclear and what they should add. Always populate this, even at high confidence, so they know what was extracted before they hit trace.
+7. Never fabricate a field. A null field is the correct, honest output when the information genuinely was not given — the human reviews and can fill it in themselves.
+
+Output schema (exact keys):
+{
+  "token": string | null,
+  "amount": number | null,
+  "date": string | null,
+  "confidence": "high" | "medium" | "low",
+  "note": string
+}`;
+
+let anchorParseState = null; // { status: "loading"|"ready"|"error", ... } — scoped to whichever node panel is open; cleared on selection change (see renderSidePanel)
+let anchorDescriptionDraft = ""; // textarea content survives re-renders (renderSidePanel rebuilds innerHTML); cleared alongside anchorParseState on selection change
+
+async function parseAnchorFromDescription(node, description) {
+  if (!aiIsConfigured()) { openAiSettingsModal(); return; }
+  const text = (description || "").trim();
+  if (!text) { anchorParseState = { status: "error", message: "Describe what happened first — there's nothing to read yet." }; renderSidePanel(); return; }
+  anchorParseState = { status: "loading" };
+  renderSidePanel();
+  try {
+    const context = { description: text, reference_date: new Date().toISOString().slice(0, 10) };
+    const res = await callAnthropicApi(aiSettingsCache.apiKey, aiSettingsCache.model, AI_ANCHOR_PARSE_SYSTEM_PROMPT, JSON.stringify(context, null, 2));
+    const responseText = (res.content || []).find(b => b.type === "text")?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(responseText); }
+    catch { throw new Error("Model did not return valid JSON — rejected."); }
+    if (!("token" in parsed) || !("amount" in parsed) || !("date" in parsed) || !("note" in parsed)) {
+      throw new Error("Response missing required field(s) — rejected.");
+    }
+
+    const inTok = res.usage?.input_tokens || 0, outTok = res.usage?.output_tokens || 0;
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + inTok;
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + outTok;
+    saveAiSettings();
+
+    // Merge into whatever's already in the fields rather than overwrite —
+    // if the user already typed a token but only asked AI for the date, a
+    // parse re-run shouldn't clobber the token they entered themselves.
+    // Written straight into node.traceAnchor via upsertNode, the same
+    // storage the manual fields use, so it renders through the normal
+    // template path (single source of truth, no separate DOM-write step
+    // that could go stale or fight a manual edit made after the fact).
+    const existing = (node.traceAnchor) || {};
+    const merged = {
+      token: existing.token || parsed.token || null,
+      amount: (existing.amount !== undefined && existing.amount !== null) ? existing.amount
+        : ((parsed.amount === null || parsed.amount === undefined || isNaN(Number(parsed.amount))) ? null : Number(parsed.amount)),
+      date: existing.date || parsed.date || null,
+    };
+    upsertNode(node.address, node.chain, { traceAnchor: (merged.token || merged.amount || merged.date) ? merged : null });
+    scheduleSave();
+
+    anchorParseState = {
+      status: "ready",
+      confidence: ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "low",
+      note: parsed.note || "",
+    };
+  } catch (err) {
+    anchorParseState = { status: "error", message: String(err.message || err) };
+  }
+  renderSidePanel();
+}
+
 // ---------- AI "next step" suggestion (post-trace, inconclusive-finish only) ----------
 // Deliberately a SEPARATE prompt/call path from AI_SYSTEM_PROMPT above. That
 // one classifies a single wallet's behavioral pattern. This one looks at an
@@ -5114,7 +5331,390 @@ function buildNextStepContext(rootAddress, chain, visitedAddresses) {
   };
 }
 
+// Shortest already-known path between two addresses over the CURRENT graph
+// (state.edges) — used to give the arrival-estimate AI call real structure
+// to reason over (which hops connect the root to a wallet being scanned
+// manually) instead of just two addresses in isolation. Undirected BFS: the
+// graph already conflates direction into inValue/outValue per edge, and for
+// "are these wallets connected at all, how many hops apart" that's fine.
+// Returns null if the two addresses aren't connected in what's loaded yet.
+function shortestKnownPath(fromAddr, toAddr) {
+  const from = String(fromAddr).toLowerCase(), to = String(toAddr).toLowerCase();
+  if (from === to) return [from];
+  const adj = new Map();
+  const addEdge = (a, b) => {
+    if (!adj.has(a)) adj.set(a, new Set());
+    if (!adj.has(b)) adj.set(b, new Set());
+    adj.get(a).add(b); adj.get(b).add(a);
+  };
+  state.edges.forEach(e => addEdge(e.a.toLowerCase(), e.b.toLowerCase()));
+  if (!adj.has(from) || !adj.has(to)) return null;
+  const prev = new Map([[from, null]]);
+  const queue = [from];
+  while (queue.length) {
+    const cur = queue.shift();
+    if (cur === to) break;
+    for (const nb of (adj.get(cur) || [])) {
+      if (!prev.has(nb)) { prev.set(nb, cur); queue.push(nb); }
+    }
+  }
+  if (!prev.has(to)) return null;
+  const path = [];
+  let cur = to;
+  while (cur !== null) { path.unshift(cur); cur = prev.get(cur); }
+  return path;
+}
+
+// ---------- AI-assisted arrival-window estimate ----------
+// Manual scans have no hop.tsIn to anchor an ascending fetch to (see the
+// fetchOpts fallback in investigateInner) — they fall back to the case's
+// root theft-anchor date verbatim, which is correct when the target wallet
+// is only a hop or two downstream but a weaker guess the further it sits
+// from the root. Users are only ever asked to enter ONE anchor, on their
+// own wallet — they can't be expected to know when funds reached some
+// wallet three hops away that they've never looked at. This asks the AI to
+// look at whatever structure IS already known (path from root, any sparse
+// edge timestamps already sitting in the graph) and refine that single date
+// into a better estimate for THIS wallet specifically, before the ascending
+// fetch runs. Same anti-hallucination discipline as suggestNextTraceStep:
+// strict JSON, and the result is bounds-checked, never trusted blindly.
+const AI_ARRIVAL_ESTIMATE_SYSTEM_PROMPT = `You are a blockchain forensics assistant. A wallet tracer needs to fetch one wallet's transaction history and wants to start reading from the right point in time instead of paging through irrelevant history. You are given the date stolen funds left the original victim wallet, and whatever already-known chain of wallets/edges connects that origin to the wallet about to be scanned.
+
+Your only job: estimate the date the traced funds most likely reached the TARGET wallet, so the fetch can jump straight there.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object. No markdown, no preamble, no explanation outside the JSON.
+2. Reason from the evidence given: the theft date, the number of hops between origin and target, and any transaction timestamps already visible on edges near either end of that path. Laundering typically moves promptly (minutes to days per hop), not months — but defer to actual timestamps in the data over that assumption whenever they're present.
+3. "estimated_date" must be an ISO date string (YYYY-MM-DD), on or after the theft date. If you cannot form a reasonable estimate from the evidence given, set it to null rather than guessing wildly.
+4. Never estimate a date in the future.
+5. "confidence" must reflect how directly the evidence supports the estimate: "high" only if a nearby edge has a timestamp close to your estimate, "low" if you are purely extrapolating from hop count and the theft date with no supporting timestamp nearby.
+
+Output EXACTLY this JSON shape, nothing else:
+{
+  "estimated_date": string | null,
+  "confidence": "high" | "medium" | "low",
+  "reason": string
+}`;
+
+function buildArrivalEstimateContext(targetAddress, targetChain) {
+  const rootNode = state.nodes.find(n => n.traceAnchor && n.traceAnchor.date);
+  if (!rootNode) return null;
+  const anchor = rootNode.traceAnchor;
+  const anchorMs = Date.parse(anchor.date + "T00:00:00Z");
+  if (isNaN(anchorMs)) return null;
+
+  const path = shortestKnownPath(rootNode.address, targetAddress);
+
+  // Pull whatever sample timestamps already exist on edges along the known
+  // path, plus on the target's own edges — sparse and possibly stale (that's
+  // the whole reason this is needed), but real data points beat none.
+  const edgeIndex = new Map();
+  state.edges.forEach(e => {
+    const a = e.a.toLowerCase(), b = e.b.toLowerCase();
+    edgeIndex.set(`${a}|${b}`, e); edgeIndex.set(`${b}|${a}`, e);
+  });
+  const nearbyTimestamps = [];
+  const collectFrom = (addr) => {
+    const key = String(addr).toLowerCase();
+    state.edges.forEach(e => {
+      if (e.a.toLowerCase() !== key && e.b.toLowerCase() !== key) return;
+      (e.txSamples || []).slice(0, 3).forEach(s => {
+        if (s && s.ts) nearbyTimestamps.push({ near_wallet: short(addr), ts: s.ts, value: s.value });
+      });
+    });
+  };
+  collectFrom(targetAddress);
+  if (path) path.forEach(collectFrom);
+
+  return {
+    theft_date: anchor.date,
+    theft_token: anchor.token || null,
+    theft_amount: anchor.amount || null,
+    origin_wallet: short(rootNode.address),
+    target_wallet: short(targetAddress),
+    hops_between_origin_and_target: path ? path.length - 1 : null,
+    known_path: path ? path.map(a => short(a)) : null,
+    nearby_transaction_timestamps: nearbyTimestamps.slice(0, 20),
+    today: new Date().toISOString().slice(0, 10),
+  };
+}
+
+// Returns { dateMs, confidence, reason } or null (any failure — no key
+// configured, malformed response, out-of-bounds date — is fail-safe: the
+// caller falls straight back to the plain root-anchor date, same as before
+// this existed. Never blocks or prompts; this runs silently inside a normal
+// scan, unlike the explicit "Ask AI" button for next-step suggestions.
+async function estimateArrivalWindow(targetAddress, targetChain) {
+  if (!aiIsConfigured()) return null;
+  try {
+    const context = buildArrivalEstimateContext(targetAddress, targetChain);
+    if (!context) return null; // no anchor set anywhere in the case
+    const res = await callAnthropicApi(aiSettingsCache.apiKey, aiSettingsCache.model, AI_ARRIVAL_ESTIMATE_SYSTEM_PROMPT, JSON.stringify(context, null, 2));
+    const text = (res.content || []).find(b => b.type === "text")?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return null; }
+    if (!parsed || parsed.estimated_date == null) return null;
+    const ms = Date.parse(parsed.estimated_date + "T00:00:00Z");
+    if (isNaN(ms)) return null;
+    const theftMs = Date.parse(context.theft_date + "T00:00:00Z");
+    // Bounds check: never before the theft, never in the future. A model
+    // that returns something outside this range is wrong by construction —
+    // reject rather than act on it.
+    if (ms < theftMs || ms > Date.now()) return null;
+    const inTok = res.usage?.input_tokens || 0, outTok = res.usage?.output_tokens || 0;
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + inTok;
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + outTok;
+    saveAiSettings();
+    return {
+      dateMs: ms,
+      confidence: ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "low",
+      reason: String(parsed.reason || "").slice(0, 300),
+    };
+  } catch {
+    return null; // network/API failure — silent fallback, this is a best-effort refinement, not a required step
+  }
+}
+
+let fallbackDiagnosis = null; // { status: "loading"|"ready"|"error", ... } — see diagnoseFallbacks
+
+// ---------- AI-assisted fallback diagnosis ----------
+// A corridor-fallback means the app couldn't find the specific transaction
+// that should connect an arrival to an onward transfer, and had to guess
+// instead (largest-lifetime-flow). Confirmed real-world cause (2026-08-10,
+// wallet 998e): the ascending fetch targeted the exact right block and
+// timestamp, but the explorer's own paginated response for a huge account
+// (1,000+ counterparties) simply didn't include the transaction — verified
+// independently because the same transaction WAS captured from the other
+// wallet's side. That's a data-completeness problem, not a selection-logic
+// problem, and no amount of tuning selectOnwardFlows fixes it. This asks the
+// AI to look at a fallback's specifics and suggest where to look — it never
+// touches the trace or the graph, purely advisory, same spirit as the
+// next-step suggester.
+const AI_FALLBACK_DIAGNOSIS_SYSTEM_PROMPT = `You are a blockchain forensics assistant helping debug why a wallet tracer's automated trace could not confidently follow the money at a specific wallet ("corridor-fallback" events). You are NOT being asked to guess where the funds went — a human will decide that. You are being asked to diagnose WHY the app couldn't determine it, and suggest a concrete next diagnostic step.
+
+Common causes to consider, roughly in order of how often they turn out to be the answer:
+- The explorer API's paginated response for a very high-activity wallet didn't include the specific transaction, even though the fetch targeted the right time window (large accounts are known to have unreliable deep pagination on some Blockscout/Etherscan-clone explorers).
+- The transaction exists but is a token/internal transfer type that didn't get parsed into the event feed correctly.
+- The funds genuinely went through a swap, bridge, or contract interaction that changes the token/value at that hop, so no same-token, same-value transfer exists to find.
+- The arrival timestamp itself was wrong (upstream hop mismatch), so the search window doesn't cover the real transaction at all.
+- The wallet's activity is genuinely too high-volume/noisy for any automatic value-corridor match, and this wallet needs human review of its full transaction list rather than automated matching.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object. No markdown, no preamble, no explanation outside the JSON.
+2. Base your diagnosis on the specific evidence given for each fallback (wallet scale, event count fetched, arrival timestamp, whether the fetch was flagged incomplete) — don't default to the same cause for every case without reasoning from what's actually different about it.
+3. "next_action" MUST be an action available inside this app, not an external/manual step. The person using this tool is not going to hand-query a block explorer's API or read raw transaction JSON. The one action that actually helps here: manually scan the specific fallback wallet using "Deep" scan mode (this performs a fresh, targeted fetch of that wallet's full history, ascending from the case's theft-anchor date if one is set — which directly addresses the most common cause, an incomplete/inconsistent explorer response on the first attempt), then re-run auto-trace from the root so it picks up whatever that scan found. Default to recommending exactly that, naming the specific wallet, UNLESS the evidence points to a genuinely different actionable cause available in-app (e.g. the arrival timestamp itself looks wrong because an earlier hop's own corridor match looks suspect — in which case say so and name which earlier hop to review instead).
+4. "confidence" reflects how directly the evidence supports your stated cause, not how important the fallback is.
+
+Output EXACTLY this JSON shape, nothing else:
+{
+  "diagnoses": [
+    {
+      "wallet": string,
+      "likely_cause": string,
+      "next_action": string,
+      "confidence": "high" | "medium" | "low"
+    }
+  ]
+}`;
+
+function buildFallbackDiagnosisContext(fallbackEvents) {
+  return {
+    fallback_count: fallbackEvents.length,
+    fallbacks: fallbackEvents.map(f => ({
+      wallet: short(f.address),
+      depth: f.depth,
+      parent_wallet: f.parent ? short(f.parent) : null,
+      arrival_timestamp: f.tsIn ? new Date(f.tsIn).toISOString() : null,
+      counterparty_count: f.counterpartyCount,
+      events_fetched: f.eventsFetched,
+      fetch_flagged_incomplete: !!f.fetchIncomplete,
+      raw_reason: f.reason || null,
+    })),
+  };
+}
+
+// Returns nothing — sets fallbackDiagnosis and re-renders, same pattern as
+// suggestNextTraceStep. Explicit user action (button click), so unlike the
+// silent arrival-estimate feature, this DOES open the AI settings modal if
+// no key is configured, same as the existing next-step suggester.
+async function diagnoseFallbacks(fallbackEvents) {
+  if (!aiIsConfigured()) { openAiSettingsModal(); return; }
+  if (!fallbackEvents || !fallbackEvents.length) return;
+  fallbackDiagnosis = { status: "loading" };
+  renderTraceDonePromptRefresh();
+  try {
+    const context = buildFallbackDiagnosisContext(fallbackEvents);
+    const res = await callAnthropicApi(aiSettingsCache.apiKey, aiSettingsCache.model, AI_FALLBACK_DIAGNOSIS_SYSTEM_PROMPT, JSON.stringify(context, null, 2));
+    const text = (res.content || []).find(b => b.type === "text")?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(text); }
+    catch { throw new Error("Model did not return valid JSON — rejected."); }
+    if (!Array.isArray(parsed.diagnoses)) throw new Error("Response missing 'diagnoses' array — rejected.");
+    const inTok = res.usage?.input_tokens || 0, outTok = res.usage?.output_tokens || 0;
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + inTok;
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + outTok;
+    saveAiSettings();
+    // Match each diagnosis back to its full address/chain by short-form
+    // string — same anti-hallucination discipline as suggestNextTraceStep:
+    // the model only ever saw short addresses, so this is a lookup against
+    // known data, not trust in anything the model generated verbatim. A
+    // diagnosis that doesn't match any fallback we actually sent is dropped
+    // rather than shown with a broken action button.
+    fallbackDiagnosis = {
+      status: "ready",
+      diagnoses: parsed.diagnoses.map(d => {
+        const src = fallbackEvents.find(f => short(f.address) === String(d.wallet || ""));
+        return {
+          wallet: String(d.wallet || "?"),
+          address: src ? src.address : null,
+          chain: src ? src.chain : null,
+          cause: String(d.likely_cause || "").slice(0, 400),
+          nextAction: String(d.next_action || "").slice(0, 400),
+          confidence: ["high", "medium", "low"].includes(d.confidence) ? d.confidence : "low",
+        };
+      }),
+    };
+  } catch (err) {
+    fallbackDiagnosis = { status: "error", message: String(err.message || err) };
+  }
+  renderTraceDonePromptRefresh();
+}
+
+// ---------- AI corridor-fallback resolution (inline, resumes the SAME run) ----------
+// Distinct from diagnoseFallbacks above, which is a POST-trace, user-
+// triggered explainer that never feeds back into the trace itself. This one
+// runs INLINE, mid-trace, at the moment a hop would otherwise fall back to
+// "largest lifetime flow" — and its pick, if any, is used immediately to
+// keep walking the SAME run, rather than requiring the user to notice a
+// stuck finish and manually kick off a fresh trace.
+//
+// IMPORTANT SCOPE: this only ever runs AFTER the deeper-pagination retry
+// above has already had its shot. That retry exists because most fallbacks
+// observed in practice (the 998e case, 2026-08-10) are DATA problems — the
+// real transaction just wasn't in the fetched window — and no amount of AI
+// reasoning fixes a transaction that was never fetched. This function is
+// for the other, genuinely different case: a wallet whose FULL fetched
+// history still doesn't show one clear onward corridor (several
+// similar-sized candidates, no timing signal, real ambiguity) — the kind of
+// judgment call a human forensic analyst would actually have to make by
+// eye. It is never a substitute for fetching more data; it's what's left
+// once more data wouldn't help.
+const AI_CORRIDOR_FALLBACK_SYSTEM_PROMPT = `You are a blockchain forensics assistant. A wallet tracer fully fetched a wallet's transaction history but could not confidently match which specific outbound transfer(s) carried the traced funds onward — the arrival transaction from the parent wallet either wasn't found, or several outbound candidates are plausible with no clear timing/value match. You are being asked to pick the single most likely candidate from the list actually provided, or to say none is more likely than another.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object. No markdown, no preamble, no explanation outside the JSON.
+2. address: the counterparty address you judge most likely to be the onward corridor, copied EXACTLY (same casing) from the candidate list. Use null if no candidate stands out — do not force a pick.
+3. confidence: "high" only if one candidate is clearly favored by timing proximity to the traced value's arrival and/or a value close to the traced amount. "medium" if there's a plausible but not clear-cut favorite. "low" if this is close to a coin flip between two or more candidates.
+4. reason: cite the SPECIFIC data points from the candidate list that led to your pick (timing, value proximity, transaction count, prior classification) — never a vague impression.
+5. If the reason the app gives for the fallback indicates the data itself is incomplete (a truncated fetch, a rate limit, a missing arrival transaction), still make your best pick from what's given, but confidence must be "low" or "medium", never "high" — you cannot be highly confident about data you know is incomplete.
+6. Never fabricate a candidate not present in the list.
+
+Output schema (exact keys):
+{
+  "address": string | null,
+  "confidence": "high" | "medium" | "low",
+  "reason": string
+}`;
+
+async function resolveCorridorFallbackWithAi(hop, outsAll, reason, fetchIncomplete) {
+  if (!aiIsConfigured()) return null;
+  try {
+    const candidates = outsAll.slice().sort((a, b) => b.sent - a.sent).slice(0, 15)
+      .map(o => ({ address: o.cp, sent_lifetime_total: o.sent }));
+    if (!candidates.length) return null;
+    const context = {
+      wallet: hop.address, chain: hop.chain, depth: hop.depth,
+      traced_value_in: hop.valueIn || null,
+      fallback_reason: reason || "unknown",
+      fetch_incomplete: fetchIncomplete || null,
+      candidates,
+    };
+    const res = await callAnthropicApi(aiSettingsCache.apiKey, aiSettingsCache.model, AI_CORRIDOR_FALLBACK_SYSTEM_PROMPT, JSON.stringify(context, null, 2));
+    const text = (res.content || []).find(b => b.type === "text")?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return null; }
+    const inTok = res.usage?.input_tokens || 0, outTok = res.usage?.output_tokens || 0;
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + inTok;
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + outTok;
+    saveAiSettings();
+    if (!parsed.address) return null;
+    // Same anti-hallucination gate as suggestNextTraceStep: the address MUST
+    // exact-match (case-insensitive) a candidate actually sent — otherwise
+    // treat it as a fabrication, not a pick.
+    const match = candidates.find(c => c.address.toLowerCase() === String(parsed.address).toLowerCase());
+    if (!match) return null;
+    return {
+      cp: match.address, sent: match.sent_lifetime_total,
+      confidence: ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "low",
+      reason: parsed.reason || "",
+    };
+  } catch (err) {
+    return null; // any failure here must never block the trace — the existing largest-lifetime-flow fallback always still runs
+  }
+}
+
 let nextStepSuggestion = null; // { status: "loading"|"ready"|"error"|"none", ... }
+
+// ---------- AI branch-continuation advisor (live, at the moment an exchange is found) ----------
+// Runs the moment a branch reaches a confirmed exchange mid-trace. Distinct
+// from every other AI feature here in one way: it does NOT act on the
+// trace, it only advises a human who's about to decide via the
+// exchangeFoundBar's Stop button. Per-branch exchange-hit is intentionally
+// NOT auto-halted (see the REVERTED comment on run.exchangeHalt below) —
+// a real prior case had two equally-legitimate branches ending at two
+// different exchanges, and killing the run on the first hit silently
+// dropped the second, real answer. That correctness must never depend on
+// this advisor: if AI is unavailable, wrong, or slow, the trace keeps
+// running exactly as it always has, and the plain "Stop remaining
+// branches" button still works with no AI involved at all. This only adds
+// a second opinion on TOP of the human's own judgment, never a decision.
+const AI_BRANCH_CONTINUE_SYSTEM_PROMPT = `You are a blockchain forensics assistant. An automated wallet tracer just confirmed that some of the traced funds reached a centralized exchange (the destination a compliance/legal request would target). Other branches from the same investigation are still queued to be traced. You are being asked to advise a human investigator on whether the remaining branches look worth continuing, or whether the exchange hit already found is very likely the complete answer.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object. No markdown, no preamble, no explanation outside the JSON.
+2. recommendation: "continue" if the pending branches carry enough value, or hop structure, to plausibly be a second real destination worth confirming. "stop" if the pending branches look negligible next to what's already confirmed (dust-scale value, or clearly the victim's own unrelated activity) and continuing is very unlikely to change the answer. "unclear" if you cannot tell from the data given — this is a legitimate answer, not a failure.
+3. reason: cite the SPECIFIC numbers you're weighing — the value already confirmed at the exchange vs. the value carried by the pending branches, and how many pending branches there are. Never a vague impression.
+4. confidence: "high" only if the value comparison is stark (e.g. pending branches are under 5% of the confirmed value, or over 50%). "medium" or "low" otherwise.
+5. This is advice for a human to weigh, not an instruction the app will act on automatically — you are not stopping or continuing anything yourself. Do not write as if you are making the decision; write as if you are informing someone who will.
+6. Never claim certainty about what a pending, unfetched branch contains — you only know the value it carried INTO this hop, not what happens after. Frame accordingly.
+
+Output schema (exact keys):
+{
+  "recommendation": "continue" | "stop" | "unclear",
+  "confidence": "high" | "medium" | "low",
+  "reason": string
+}`;
+
+async function recommendBranchAction(run, pendingQueue) {
+  if (!aiIsConfigured() || !pendingQueue || !pendingQueue.length) return null;
+  try {
+    const confirmedTotal = run.exchangeHits.reduce((s, h) => s + (h.value || 0), 0);
+    const pendingTotal = pendingQueue.reduce((s, q) => s + (q.valueIn || 0), 0);
+    const context = {
+      exchanges_found: run.exchangeHits.map(h => ({ exchange: h.label, depth: h.depth, value: h.value || null })),
+      confirmed_value_total: confirmedTotal || null,
+      pending_branch_count: pendingQueue.length,
+      pending_value_total: pendingTotal || null,
+      pending_branches: pendingQueue.slice(0, 20).map(q => ({ address: q.address, depth: q.depth, value_carried_in: q.valueIn || null })),
+    };
+    const res = await callAnthropicApi(aiSettingsCache.apiKey, aiSettingsCache.model, AI_BRANCH_CONTINUE_SYSTEM_PROMPT, JSON.stringify(context, null, 2));
+    const text = (res.content || []).find(b => b.type === "text")?.text || "";
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { return null; }
+    const inTok = res.usage?.input_tokens || 0, outTok = res.usage?.output_tokens || 0;
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + inTok;
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + outTok;
+    saveAiSettings();
+    if (!["continue", "stop", "unclear"].includes(parsed.recommendation)) return null;
+    return {
+      recommendation: parsed.recommendation,
+      confidence: ["high", "medium", "low"].includes(parsed.confidence) ? parsed.confidence : "low",
+      reason: parsed.reason || "",
+    };
+  } catch (err) {
+    return null; // advisory only — any failure here must never block or alter the trace
+  }
+}
 
 async function suggestNextTraceStep(rootAddress, chain, visitedAddresses) {
   if (!aiIsConfigured()) { openAiSettingsModal(); return; }
@@ -6640,8 +7240,26 @@ function detectSplitConverge(splitFromAddr) {
 function followRecordedOutflowToExchanges(hubAddr) {
   const tl = state.timeline || [];
   if (!tl.length) return [];
+  // Scope to the MOST RECENT auto-trace run only, not the full cumulative
+  // timeline. Confirmed real case (2026-08-10): an earlier run's fallback
+  // guessed multiple parallel branches from a hub (998e → both d500→OKX and
+  // 9aA0→Bybit); a later, corrected run (after the fallback-branch-width fix)
+  // correctly found only the real corridor. The earlier run's now-superseded
+  // branch never gets removed from state.timeline — it's just history — so
+  // without this scoping, a chain-of-custody exhibit meant for a law
+  // enforcement filing would present a since-corrected wrong branch with
+  // EQUAL weight to the verified one, which is exactly the kind of thing
+  // that gets a filing's credibility challenged. "Most recent run" is a
+  // reasonable proxy for "the investigator's current, corrected
+  // understanding" — re-running auto-trace is how a wrong branch gets fixed,
+  // and the exhibit should reflect that fix, not a mashup of every attempt.
+  // Falls back to the full timeline if there's no "start" marker at all (a
+  // case built entirely from manual scans, no auto-trace run ever logged).
+  let lastRunStart = -1;
+  for (let i = tl.length - 1; i >= 0; i--) { if (tl[i].type === "start") { lastRunStart = i; break; } }
+  const scopedTl = lastRunStart >= 0 ? tl.slice(lastRunStart) : tl;
   const childrenOf = new Map();
-  for (const t of tl) {
+  for (const t of scopedTl) {
     if (!t.address || !t.parent) continue;
     const pk = t.parent.toLowerCase();
     if (!childrenOf.has(pk)) childrenOf.set(pk, []);
@@ -7048,7 +7666,7 @@ function resolveHopHash(prevAddr, curAddr, hopVal) {
   if (!best) return null;
   const closeEnough = hopVal && best.value && (Math.abs(best.value - hopVal) <= hopVal * 0.05);
   const quality = closeEnough ? "close" : (!hopVal || !best.value) ? "zero" : "mismatch";
-  return { hash: best.hash, ts: best.ts, value: best.value, quality };
+  return { hash: best.hash, ts: best.ts, value: best.value, quality, token: best.token || null };
 }
 
 function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
@@ -7168,14 +7786,18 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
     // the identical hash for the identical hop.
     let hashLine = "";
     if (i > 0 && hop.isAggregateVal) {
-      // Deliberately NOT calling resolveHopHash here. It picks the
-      // transaction "closest" to hop.val — but hop.val is an aggregate no
-      // real transaction was ever going to match, so the "closest" pick is
-      // arbitrary and citing it (even with a caveat) implies it's a
-      // meaningful candidate when it isn't. A direct link to review the
-      // wallet's own history is more honest than a specific but arbitrary
-      // transaction hash.
-      hashLine = `<div class="val" style="font-size:11px; color:#97a4bb;">No individual transaction is cited for this hop — see the aggregate warning above. Review <a href="${explorerAddressUrl(chainKey, displayAddr(hop.address))}">this wallet's full transaction history</a> on the explorer to identify the real transaction(s).</div>`;
+      // Still cite whatever hash resolveHopHash finds — omitting it entirely
+      // (the previous approach) throws away a real, verifiable starting
+      // point for the investigator over a theoretical risk that's already
+      // handled by NOT stating a value for it. The concern that made this
+      // omit the hash originally was about the VALUE being arbitrary (the
+      // "closest" match to an aggregate no single transfer was ever going to
+      // equal) — that's solved by leaving the value out, not by hiding the
+      // hash too.
+      const resolved = resolvedHops[i];
+      hashLine = resolved
+        ? `<div class="val" style="font-size:11px; color:#97a4bb;">tx: <a href="${explorerTxUrl(chainKey, resolved.hash)}">${escapeHtml(resolved.hash)}</a>${resolved.ts ? ` (${escapeHtml(resolved.ts)})` : ""} <span style="font-style:italic;">— part of a multi-hop, multi-transaction aggregate on this wallet pair; not a confirmed single transfer of the stated amount, see warning above.</span></div>`
+        : `<div class="val" style="font-size:11px; color:#97a4bb;">No individual transaction is cited for this hop — see the aggregate warning above. Review <a href="${explorerAddressUrl(chainKey, displayAddr(hop.address))}">this wallet's full transaction history</a> on the explorer to identify the real transaction(s).</div>`;
     } else if (i > 0) {
       const resolved = resolvedHops[i];
       if (resolved) {
@@ -7208,9 +7830,9 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
   }).join("");
 
   const lastHop = path[path.length-1];
-  const endNode = nodeByKey(lastHop.address) || {};
-  const endName = exchangeIdentity(endNode, lastHop.address);
-  const endIsExchange = !!endName;
+  let endNode = nodeByKey(lastHop.address) || {};
+  let endName = exchangeIdentity(endNode, lastHop.address);
+  let endIsExchange = !!endName;
   const trailEndedNote = lastHop.endNote || "";
   if (endName && !endNode.autoLabel) endNode.autoLabel = endName; // surface the name in the conclusion
   // Not confirmed as an exchange, but shaped like one: a High-Volume Hub label
@@ -7431,6 +8053,24 @@ function generatePathExhibit(startAddr, endAddr, amountStr, opts) {
         `The single-transfer trail ends at ${escapeHtml(splitShort)}, where the traced funds fan out into ${nB} branches that all reconverge on ${escapeHtml(hubShort)} — layering followed by consolidation. ` +
         `No onward route from that hub to a recognized exchange is recorded in the loaded data yet. Investigate ${escapeHtml(hubShort)}'s outbound counterparties and regenerate this exhibit to extend the chain past the consolidation point.`;
     }
+    // Same fix, same reason, for endIsExchange/endNode/endName: they were
+    // computed above from the LINEAR trail's literal last hop, which is
+    // usually the split point itself, not the exchange the funds actually
+    // reached. Everything downstream of here — the "What to do next"
+    // section in particular — reads endIsExchange, and a confirmed real
+    // case (2026-08-10) had the Conclusion correctly state "reaches Bybit
+    // Hot Wallet 1" while "What to do next" simultaneously told the reader
+    // no exchange was reached, in the same signed document. If splitRoutes
+    // found a real exchange, that's the answer, regardless of what the
+    // linear path's last hop was.
+    if (splitRoutes && splitRoutes.length) {
+      endIsExchange = true;
+      const primaryRoute = splitRoutes[0];
+      const primaryExNode = nodeByKey((primaryRoute.exchangeAddr || "").toLowerCase());
+      if (primaryExNode) endNode = primaryExNode;
+      endName = primaryRoute.exchange || endName;
+      if (endName && endNode && !endNode.autoLabel) endNode.autoLabel = endName;
+    }
   }
 
   // Visual flow diagram — boxes + arrows, at a glance before the detailed
@@ -7614,10 +8254,10 @@ function generateLawEnforcementPacket(startAddr) {
           const tol = Math.abs(value) * 0.05;
           const match = dated.filter(s => s.value !== undefined && Math.abs(s.value - value) <= tol)
             .sort((x, y) => Math.abs(x.value - value) - Math.abs(y.value - value))[0];
-          if (match) return { hashes: [match.hash], value: match.value, ts: match.ts, source: "auto" };
+          if (match) return { hashes: [match.hash], value: match.value, ts: match.ts, source: "auto", token: match.token || null };
         }
         const onOrAfter = dated.slice().sort((x, y) => Date.parse(x.ts) - Date.parse(y.ts));
-        if (onOrAfter.length) { const s = onOrAfter[0]; return { hashes: [s.hash], value: s.value, ts: s.ts, source: "auto" }; }
+        if (onOrAfter.length) { const s = onOrAfter[0]; return { hashes: [s.hash], value: s.value, ts: s.ts, source: "auto", token: s.token || null }; }
       }
       // Automated capture missed it (capped per edge, weighted toward
       // largest-value — see MAX_TX_SAMPLES). If the investigator manually
@@ -7653,6 +8293,23 @@ function generateLawEnforcementPacket(startAddr) {
     // value at all rather than the misleading aggregate.
     const resolvedHops = path.map((hop, i) => i > 0 ? resolveHopHash(path[i - 1].address, hop.address, hop.val) : null);
     const csvRows = [["tx_hash", "from_address", "to_address", "value", "token", "timestamp_utc"]];
+    // Real bug fixed 2026-08-10: every citation in this report used to be
+    // labeled with whatever was typed into the theft-anchor token field
+    // (anchor.token), on every single row, regardless of what actually
+    // moved on that specific transaction. Confirmed real case: the theft
+    // transaction itself is a genuine stXRP ERC-20 transfer (tokenContract
+    // present on-chain) — but everything from the split point onward
+    // carries NO token field at all, meaning those are native FLR
+    // transfers (a DEX swap happened around hop 1, where 17 swap
+    // transactions were already logged). The report was citing every leg
+    // as "stxrp" regardless, silently misidentifying the asset on every
+    // downstream hop. A sample's own .token field (when present) is the
+    // verified on-chain symbol and always wins; no .token field means
+    // native currency, not "unknown" — label it with the chain's actual
+    // native symbol. anchor.token is now only a last-resort label for the
+    // rare row with no matched sample at all.
+    const resolveDisplayToken = (sampleToken, chainKey) =>
+      sampleToken || (CHAINS[chainKey || state.chainKey] || {}).native || anchor.token || "";
     let hopHtml = "";
     for (let i = 0; i < path.length; i++) {
       const hop = path[i];
@@ -7666,16 +8323,27 @@ function generateLawEnforcementPacket(startAddr) {
       if (isExch) hopHtml += `<div class="tx-detail">${escapeHtml(exchangeIdentity(n, hop.address))}</div>`;
       if (i > 0) {
         if (hop.isAggregateVal) {
-          // Same aggregate-value problem as the standard exhibit, but higher
-          // stakes here: this HTML/CSV goes to exchanges and law enforcement.
-          // Previously this branch called resolveHopHash anyway, which picks
-          // whichever real transaction happens to be numerically "closest" to
-          // an aggregate that no single transaction was ever going to match —
-          // and cited that arbitrary pick as this hop's TxID/Value with NO
-          // warning, including in the CSV attachment. A wrong-but-confident
-          // citation in a compliance/legal filing is worse than an honest
-          // gap, so this hop is now flagged as unresolved instead of guessing.
-          hopHtml += `<div class="tx-detail">No single transaction identified for this hop — the recorded figure is a multi-transaction aggregate across this wallet pair, not one transfer. Requires manual review of the counterparty's full transaction history before this hop can be cited.</div>`;
+          // Still show whatever hash IS available (from the same resolver
+          // every other hop uses), just clearly caveated rather than either
+          // fabricating a confident value (the original bug this comment
+          // used to describe) or omitting the hash entirely (the previous
+          // fix, which over-corrected — a real hash the investigator can
+          // start verifying from is more useful than a bare "unresolved"
+          // notice, as long as it's not presented as a confirmed match).
+          // The VALUE is deliberately left out here even when resolveHopHash
+          // found one: for an aggregate hop it's whichever real transaction
+          // happened to be numerically closest to a total that no single
+          // transfer was ever going to match, so citing that number would
+          // repeat exactly the wrong-but-confident mistake this branch
+          // exists to avoid. Hash and timestamp are real; the value isn't
+          // trustworthy enough to state as this hash's own amount.
+          const resolved = resolvedHops[i];
+          if (resolved) {
+            hopHtml += `<div class="tx-detail">TxID: <span class="mono">${escapeHtml(resolved.hash)}</span>${resolved.ts ? ` &nbsp;|&nbsp; ${escapeHtml(resolved.ts)}` : ""}<br><i>This hash is part of a multi-hop, multi-transaction aggregate across this wallet pair — it is not a confirmed single transfer of the stated amount. Manual review of the counterparty's full transaction history is required before citing a value for this hop.</i></div>`;
+            csvRows.push([resolved.hash, displayAddr(path[i - 1].address), displayAddr(hop.address), "", resolveDisplayToken(resolved.token, (nodeByKey(hop.address) || {}).chain), resolved.ts || ""]);
+          } else {
+            hopHtml += `<div class="tx-detail">No single transaction identified for this hop — the recorded figure is a multi-transaction aggregate across this wallet pair, not one transfer. Requires manual review of the counterparty's full transaction history before this hop can be cited.</div>`;
+          }
         } else {
         const resolved = resolvedHops[i];
         if (resolved) {
@@ -7685,7 +8353,7 @@ function generateLawEnforcementPacket(startAddr) {
             if (next && next.hash === resolved.hash) { val = next.value; ts = next.ts || ts; }
           }
           hopHtml += `<div class="tx-detail">TxID: <span class="mono">${escapeHtml(resolved.hash)}</span>${val ? ` &nbsp;|&nbsp; Value: ${fmtNum(val)}` : ""}${ts ? ` &nbsp;|&nbsp; ${escapeHtml(ts)}` : ""}</div>`;
-          csvRows.push([resolved.hash, displayAddr(path[i - 1].address), displayAddr(hop.address), csvNum(val), anchor.token || "", ts || ""]);
+          csvRows.push([resolved.hash, displayAddr(path[i - 1].address), displayAddr(hop.address), csvNum(val), resolveDisplayToken(resolved.token, (nodeByKey(hop.address) || {}).chain), ts || ""]);
         }
         }
       }
@@ -7705,7 +8373,13 @@ function generateLawEnforcementPacket(startAddr) {
           const label = s.hashes.length > 1 ? "TxIDs" : "TxID";
           const hashLinks = s.hashes.map(h => escapeHtml(h)).join(", ");
           splitHtml += `<div class="tx-detail">${label}: <span class="mono">${hashLinks}</span>${s.value !== null && s.value !== undefined ? ` &nbsp;|&nbsp; Value: ${fmtNum(s.value)}` : ""}${s.ts ? ` &nbsp;|&nbsp; ${escapeHtml(s.ts)}` : ""}</div>`;
-          s.hashes.forEach(h => csvRows.push([h, displayAddr(splitInfo.splitFrom), displayAddr(b.address), s.value !== null && s.value !== undefined ? csvNum(s.value) : csvNum(b.val), anchor.token || "", s.ts || ""]));
+          s.hashes.forEach(h => csvRows.push([h, displayAddr(splitInfo.splitFrom), displayAddr(b.address), s.value !== null && s.value !== undefined ? csvNum(s.value) : "", resolveDisplayToken(s.token, (nodeByKey(b.address) || {}).chain), s.ts || ""]));
+        } else {
+          // Same fix as the exchange-route section above, same reason: a
+          // step with no matched sample still needs to exist in both the
+          // narrative and the CSV, honestly labeled, not silently absent.
+          splitHtml += `<div class="tx-detail" style="color:#b00020;">No dated transaction sample found for this specific hop — verify this leg on the explorer before citing it.</div>`;
+          csvRows.push(["UNVERIFIED — no sample found, see narrative", displayAddr(splitInfo.splitFrom), displayAddr(b.address), b.val !== null && b.val !== undefined ? csvNum(b.val) : "", anchor.token || "", ""]);
         }
         splitHtml += `</div>`;
       });
@@ -7723,13 +8397,41 @@ function generateLawEnforcementPacket(startAddr) {
           const label = s.hashes.length > 1 ? "TxIDs" : "TxID";
           const hashLinks = s.hashes.map(h => escapeHtml(h)).join(", ");
           splitHtml += `<div class="tx-detail">Branch ${i + 1} in — ${label}: <span class="mono">${hashLinks}</span>${s.value !== null && s.value !== undefined ? ` &nbsp;|&nbsp; Value: ${fmtNum(s.value)}` : ""}${s.ts ? ` &nbsp;|&nbsp; ${escapeHtml(s.ts)}` : ""}</div>`;
-          s.hashes.forEach(h => csvRows.push([h, displayAddr(b.relay || b.address), displayAddr(splitInfo.hubAddr), s.value !== null && s.value !== undefined ? csvNum(s.value) : csvNum(b.relayVal), anchor.token || "", s.ts || ""]));
+          s.hashes.forEach(h => csvRows.push([h, displayAddr(b.relay || b.address), displayAddr(splitInfo.hubAddr), s.value !== null && s.value !== undefined ? csvNum(s.value) : "", resolveDisplayToken(s.token, (nodeByKey(splitInfo.hubAddr) || {}).chain), s.ts || ""]));
+        } else {
+          splitHtml += `<div class="tx-detail" style="color:#b00020;">Branch ${i + 1} in — no dated transaction sample found for this specific hop — verify this leg on the explorer before citing it.</div>`;
+          csvRows.push(["UNVERIFIED — no sample found, see narrative", displayAddr(b.relay || b.address), displayAddr(splitInfo.hubAddr), b.relayVal !== null && b.relayVal !== undefined ? csvNum(b.relayVal) : "", anchor.token || "", ""]);
         }
       });
       splitHtml += `</div>`;
 
       // Hub onward to any confirmed exchange (splitRoutes — same tracer-
       // recorded routing generatePathExhibit already computed).
+      // The "onward to exchange" route hops use a SEPARATE lookup from the
+      // branch-into-hub hops above, not findSampleByValue — confirmed
+      // divergence (2026-08-10): the standard exhibit's txLinksBetween found
+      // real hashes and values for this exact route (0xc995bc64…, 0x5820da16…,
+      // real carried amounts), but findSampleByValue came back empty for the
+      // same edges, leaving both the hash AND the value blank in the packet
+      // even though the underlying data — same `data` object, same
+      // state.edges — plainly has it. Rather than leave the root cause of
+      // that divergence unresolved, this mirrors txLinksBetween's own
+      // proven-working filter exactly (2-day grace before the anchor, take
+      // the earliest qualifying sample) instead of trusting a second,
+      // apparently-inconsistent lookup path for the exact same data.
+      const findRouteSample = (fromAddr, toAddr) => {
+        const ka = String(fromAddr).toLowerCase(), kb = String(toAddr).toLowerCase();
+        const edge = state.edges.find(e => (e.a.toLowerCase() === ka && e.b.toLowerCase() === kb) || (e.a.toLowerCase() === kb && e.b.toLowerCase() === ka));
+        let samples = (edge && Array.isArray(edge.txSamples)) ? edge.txSamples : [];
+        samples = samples.filter(s => {
+          const t = s && s.ts ? Date.parse(s.ts) : NaN;
+          return !isNaN(t) && t >= anchorDateMs - 2 * 864e5;
+        }).slice().sort((x, y) => Date.parse(x.ts) - Date.parse(y.ts));
+        if (samples.length) { const s = samples[0]; return { hashes: [s.hash].filter(Boolean), value: s.value, ts: s.ts, source: "auto", token: s.token || null }; }
+        const noted = notedHashesFor(fromAddr, toAddr);
+        if (noted.length) return { hashes: noted, value: null, ts: null, source: "noted" };
+        return null;
+      };
       if (splitRoutes && splitRoutes.length) {
         splitRoutes.forEach(rt => {
           splitHtml += `<div class="chain-arrow">&#8595; recorded route to ${escapeHtml(rt.exchange)}</div>`;
@@ -7739,16 +8441,34 @@ function generateLawEnforcementPacket(startAddr) {
             const exName = exchangeIdentity(hn, h.address);
             const isFeeder = rt.feeder && h.address.toLowerCase() === rt.feeder.toLowerCase();
             const role = exName ? "EXCHANGE ENDPOINT" : (isFeeder ? "EXCHANGE-FEEDER WALLET" : "Onward hop");
-            const s = findSampleByValue(cursor, h.address, h.val);
+            const s = findRouteSample(cursor, h.address);
             splitHtml += `<div class="chain-step"><span class="role">${escapeHtml(role)}</span><br><span class="addr">${escapeHtml(displayAddr(h.address))}</span>`;
             if (exName) splitHtml += `<div class="tx-detail">${escapeHtml(exName)} — confirmed exchange deposit wallet.</div>`;
             if (s) {
               const label = s.hashes.length > 1 ? "TxIDs" : "TxID";
               const hashLinks = s.hashes.map(h => escapeHtml(h)).join(", ");
               splitHtml += `<div class="tx-detail">${label}: <span class="mono">${hashLinks}</span>${s.value !== null && s.value !== undefined ? ` &nbsp;|&nbsp; Value: ${fmtNum(s.value)}` : ""}${s.ts ? ` &nbsp;|&nbsp; ${escapeHtml(s.ts)}` : ""}</div>`;
-              s.hashes.forEach(hh => csvRows.push([hh, displayAddr(cursor), displayAddr(h.address), s.value !== null && s.value !== undefined ? csvNum(s.value) : csvNum(h.val), anchor.token || "", s.ts || ""]));
-            } else {
+              s.hashes.forEach(hh => csvRows.push([hh, displayAddr(cursor), displayAddr(h.address), s.value !== null && s.value !== undefined ? csvNum(s.value) : "", resolveDisplayToken(s.token, (nodeByKey(h.address) || {}).chain), s.ts || ""]));
+            } else if (h.val) {
               splitHtml += `<div class="tx-detail">Route total carried onward (aggregate, may span several transactions): &asymp; ${fmtNum(h.val)} — individual transaction not isolated; verify on explorer before citing.</div>`;
+              // Confirmed real gap (2026-08-10): this is frequently the LAST
+              // hop in the whole packet — the actual exchange deposit — and
+              // it was being silently dropped from the CSV whenever no
+              // single tx sample fell inside the theft-date window (common
+              // on a high-volume exchange hot wallet, whose stored samples
+              // skew toward its largest-ever transfers, not its most
+              // recent). A compliance reviewer working from the CSV alone,
+              // never opening the narrative HTML above it, would see the
+              // trail simply stop one hop short of the exchange — exactly
+              // the wrong impression for the one edge this whole packet
+              // exists to document. No hash is fabricated; the placeholder
+              // says plainly that none was isolated, same honesty rule as
+              // the narrative, but the row — and the aggregate value — are
+              // no longer invisible to a CSV-only reviewer.
+              csvRows.push(["UNVERIFIED — no single tx isolated, see narrative", displayAddr(cursor), displayAddr(h.address), csvNum(h.val), anchor.token || "", ""]);
+            } else {
+              splitHtml += `<div class="tx-detail" style="color:#b00020;">No dated transaction sample found for this specific hop — verify this leg on the explorer before citing it.</div>`;
+              csvRows.push(["UNVERIFIED — no sample found, see narrative", displayAddr(cursor), displayAddr(h.address), "", anchor.token || "", ""]);
             }
             splitHtml += `</div>`;
             cursor = h.address;
@@ -9646,21 +10366,50 @@ async function investigate(rawAddress, chainOverride, fetchOpts) {
 // buttons — which made "Cancel" read as if it cancels the whole scan,
 // when it actually means "keep every counterparty, don't trim." Custom
 // modal, explicit button text, no ambiguity about which choice does what.
-function promptTrimHubConfirm(shortAddr, totalCount, cap) {
+// Remembered choice for the hub-trim dialog below — one-time opt-out of
+// being asked every time a wallet crosses HUB_SCAN_WRITE_CAP. Lazy-loaded
+// (not hooked into startup) since this dialog only fires occasionally, deep
+// into a scan; cached in memory after the first check so a long trace
+// hitting several oversized hubs only reads IndexedDB once.
+const TRIM_HUB_PREF_KEY = "trim-hub-pref-v1";
+let trimHubPrefCache; // undefined = not loaded yet; null = loaded, no saved preference; "trim" | "keepAll" = remembered choice
+async function getTrimHubPref() {
+  if (trimHubPrefCache !== undefined) return trimHubPrefCache;
+  try { const saved = await idbGet(TRIM_HUB_PREF_KEY); trimHubPrefCache = (saved === "trim" || saved === "keepAll") ? saved : null; }
+  catch { trimHubPrefCache = null; }
+  return trimHubPrefCache;
+}
+function setTrimHubPref(pref) {
+  trimHubPrefCache = pref;
+  idbSet(TRIM_HUB_PREF_KEY, pref).catch(() => {});
+}
+
+async function promptTrimHubConfirm(shortAddr, totalCount, cap) {
+  const pref = await getTrimHubPref();
+  if (pref === "trim") return true;
+  if (pref === "keepAll") return false;
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.style = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;";
     overlay.innerHTML = `
       <div style="background:var(--ink-1);border:1px solid var(--line-strong);border-radius:10px;max-width:440px;width:100%;padding:20px;">
         <h3 style="margin:0 0 10px;font-size:14px;color:var(--text);">${escapeHtml(shortAddr)} has ${totalCount.toLocaleString()} counterparties</h3>
-        <p style="margin:0 0 16px;font-size:12.5px;color:var(--text-2);">Token-contract / exchange-hot-wallet scale. Adding all of them can crash mobile browsers and may not restore from backup on this device.</p>
+        <p style="margin:0 0 16px;font-size:12.5px;color:var(--text-2);">This is token-contract / exchange-hot-wallet scale. Trimming to the most active counterparties keeps the map fast — most cases never need the full list.</p>
         <div style="display:flex; flex-direction:column; gap:8px;">
           <button type="button" id="__trimYes" class="small" style="border-color:var(--brass); color:var(--brass);">Add only the ${cap.toLocaleString()} most active (recommended)</button>
-          <button type="button" id="__trimNo" class="small ghost" style="border-color:#c0392b; color:#e08a7a;">Keep All ${totalCount.toLocaleString()} (may crash)</button>
+          <button type="button" id="__trimNo" class="small ghost" style="border-color:#c0392b; color:#e08a7a;">Keep All ${totalCount.toLocaleString()}</button>
         </div>
+        <label style="display:flex; align-items:center; gap:6px; margin-top:14px; font-size:11.5px; color:var(--text-2); cursor:pointer;">
+          <input type="checkbox" id="__trimRemember" style="margin:0;"> Remember my choice — don't ask again
+        </label>
       </div>`;
     document.body.appendChild(overlay);
-    const cleanup = (val) => { overlay.remove(); resolve(val); };
+    const cleanup = (val) => {
+      const remember = overlay.querySelector("#__trimRemember");
+      if (remember && remember.checked) setTrimHubPref(val ? "trim" : "keepAll");
+      overlay.remove();
+      resolve(val);
+    };
     overlay.querySelector("#__trimYes").onclick = () => cleanup(true);
     overlay.querySelector("#__trimNo").onclick = () => cleanup(false);
   });
@@ -9747,6 +10496,58 @@ async function investigateInner(rawAddress, chainOverride, fetchOpts) {
   } else if (CHAINS[useChain].preferRoutescan) {
     fetchOpts = Object.assign({}, fetchOpts, { preferRoutescan: true });
   }
+  // Manual scans (clicking Trace / Deep scan directly on a wallet) never had
+  // access to the ascending-from-arrival fetch that traceFundsAuto's crawler
+  // uses per hop — investigate() is called here with no fetchOpts window at
+  // all (see the plain `investigate(addr, chain)` call site), so every
+  // manual scan pages newest-first regardless of scan mode. That's fine for
+  // a wallet that went quiet after the theft, but for a long-lived,
+  // still-active hub (998e, 9aA0 — both confirmed real cases) the theft-era
+  // window recedes by however much NEW activity has piled up since, and a
+  // fixed page cap that reached it on one date can miss it entirely a few
+  // weeks later even under "Deep" mode. Users are only ever asked to set ONE
+  // theft anchor — on their own (root) wallet — and shouldn't need to know a
+  // downstream wallet's own theft-relevant date just to scan it correctly.
+  // So: if the caller didn't already supply a fetch window (traceFundsAuto's
+  // per-hop call already has one via buildDeepFetchOpts — never override
+  // that), fall back to the EARLIEST theft anchor set anywhere in the case
+  // and fetch ascending from just before it, same as the automated crawler
+  // does per hop. EVM only — XRPL/BTC have their own separate fetch shape.
+  if (!(fetchOpts && (fetchOpts.sinceBlock || fetchOpts.stopBeforeTs)) && !isXrpl && !isBtc) {
+    const anchorDates = allAnchorDatesMs();
+    if (anchorDates.length) {
+      // First choice: ask the AI to refine the raw root-anchor date into a
+      // wallet-specific estimate using whatever path/timestamp structure is
+      // already in the graph (see estimateArrivalWindow). Silently returns
+      // null on any failure or when AI isn't configured — the plain
+      // root-anchor date below is always the fallback, never blocked on this.
+      setLoading(true, `Estimating when funds likely reached ${short(addr)}…`);
+      const aiEstimate = await estimateArrivalWindow(addr, useChain);
+      const earliest = Math.min(...anchorDates);
+      const referenceMs = aiEstimate ? aiEstimate.dateMs : earliest;
+      logTimeline({ type: "fetch-window", address: addr, chain: useChain,
+        note: aiEstimate
+          ? `AI-estimated arrival window: ${new Date(aiEstimate.dateMs).toISOString().slice(0,10)} (confidence: ${aiEstimate.confidence}) — ${aiEstimate.reason}`
+          : `No AI arrival estimate available — using the case's earliest theft anchor (${new Date(earliest).toISOString().slice(0,10)}) directly.` });
+      const lookup = await blockNumberNear(useChain, referenceMs - 2 * 864e5); // 2-day grace before the reference date
+      if (lookup && lookup.block) {
+        fetchOpts = Object.assign({}, fetchOpts, { sinceBlock: lookup.block, sortAsc: true });
+      } else {
+        fetchOpts = Object.assign({}, fetchOpts, { stopBeforeTs: referenceMs - 7 * 864e5 });
+      }
+    }
+  }
+  // Cache check — see investigateCache comment above. Placed here, after
+  // fetchOpts is fully finalized (including the AI arrival-window estimate
+  // above), so the cache key reflects exactly what would otherwise be sent
+  // to the network.
+  const cacheKey = investigateCacheKey(addr, useChain, fetchOpts);
+  const cacheHit = investigateCache.get(cacheKey);
+  if (cacheHit && (Date.now() - cacheHit.at) < INVESTIGATE_CACHE_FRESH_MS) {
+    logTimeline({ type: "fetch-window", address: addr, chain: useChain,
+      note: `Already scanned this wallet with this exact window ${Math.round((Date.now() - cacheHit.at) / 1000)}s ago in this session — reusing that data instead of re-fetching the network.` });
+    return cacheHit.analysis;
+  }
   hideError();
   setLoading(true);
   try {
@@ -9803,11 +10604,36 @@ async function investigateInner(rawAddress, chainOverride, fetchOpts) {
     }
     // Thread the theft-anchor date into sample retention so theft-window
     // transactions can never be evicted by larger pre-theft transfers (see
-    // addTxSample). Source: the auto-trace anchor window when this fetch is
-    // part of an anchored trace, else the wallet's own saved Theft Anchor.
+    // addTxSample).
+    //
+    // REAL BUG FIXED 2026-08-10: this used to derive sampleAnchorMs from
+    // fetchOpts.stopBeforeTs first, falling back to the WALLET'S OWN saved
+    // Theft Anchor. Both sources are wrong for the common case. stopBeforeTs
+    // is only ever set by the OLDER newest-first-with-cutoff fetch mode —
+    // the now-default ascending-from-arrival-block mode (buildDeepFetchOpts,
+    // used for nearly every downstream hop) sets sinceBlock/sortAsc instead
+    // and leaves stopBeforeTs undefined. And a downstream hop's OWN
+    // traceAnchor is essentially never set — only the origin/victim wallet
+    // normally carries one. Net effect: sampleAnchorMs silently came out
+    // null for almost every hop scanned via the standard ascending mode,
+    // which disables the ANCHOR_RESERVED branch inside addTxSample entirely
+    // and falls back to pure largest-by-value retention. Confirmed real
+    // case: the 378b2e10→Bybit edge has 119 real transactions, including
+    // the real June 19 theft-window transfer, but that edge's high-volume,
+    // multi-year history dwarfs it by value — with anchor-awareness
+    // silently off, the theft-relevant sample never survived the 8-slot cap
+    // even though it was correctly fetched. This is a within-scan
+    // duplicate of the exact bug already fixed for the persist/merge step
+    // in upsertEdge below (see that function's own 2026-08-06 comment) —
+    // that fix only ever protects a sample that survives THIS step first.
+    // Fix: use the case's actual theft anchor date (allAnchorDatesMs — the
+    // same source upsertEdge's merge already trusts) as the primary source,
+    // regardless of which fetch mode supplied this wallet's data.
     const savedAnchor = (nodeIndex().get(addr.toLowerCase()) || {}).traceAnchor;
+    const caseAnchorDates = allAnchorDatesMs();
     const sampleAnchorMs =
-      (fetchOpts && fetchOpts.stopBeforeTs) ? fetchOpts.stopBeforeTs + 7 * 864e5
+      caseAnchorDates.length ? Math.min(...caseAnchorDates)
+      : (fetchOpts && fetchOpts.stopBeforeTs) ? fetchOpts.stopBeforeTs + 7 * 864e5
       : (savedAnchor && savedAnchor.date) ? Date.parse(savedAnchor.date + "T00:00:00Z")
       : null;
     const analysis = analyzeWallet(addr, txs, transfers, internalTxs, isNaN(sampleAnchorMs) ? null : sampleAnchorMs, useChain);
@@ -9831,6 +10657,7 @@ async function investigateInner(rawAddress, chainOverride, fetchOpts) {
       // relying on the analyst to remember it.
       scanMode: scanModeUsed,
       scanTruncated: truncated,
+      scanTruncatedReason: fetchTruncation.reason || null,
       scanPages: fetchTruncation.pages || null,
       scannedAt: new Date().toISOString(),
       category: (existingRoot && existingRoot.category !== "unclassified") ? existingRoot.category : "root",
@@ -9889,6 +10716,12 @@ async function investigateInner(rawAddress, chainOverride, fetchOpts) {
     if (graphFocusOn && !(investigationRun && investigationRun.active)) graphFocusOn(addr); // show WHICH wallet was just scanned
     scheduleSave();
     renderAll();
+    analysis.fetchIncomplete = fetchTruncation.reason || null; // "rate-limit" | "error" | null — see noteTruncationReason
+    // Only cache a COMPLETE fetch. A truncated/page-capped result is
+    // deliberately never cached — see the investigateCache comment above —
+    // so a hub that got cut short always gets a genuine retry, never a
+    // replayed incomplete answer.
+    if (!fetchTruncation.truncated) investigateCache.set(cacheKey, { analysis, at: Date.now() });
     return analysis; // per-transfer events power the theft-anchor trace
   } catch (e) {
     showError(`Couldn't reach the ${CHAINS[useChain].label} explorer (${e.message}). Make sure this file is open directly in your browser (not inside another app's preview) and that you have an internet connection.`);
@@ -9944,6 +10777,9 @@ const TL_META = {
   contract:             { label: "Contract",      color: "#5c7a8a" },
   burn:                 { label: "Burn/Mint",     color: "#8a5c5c" },
   "dead-end":           { label: "Dead end",      color: "#64718a" },
+  corridor:             { label: "Corridor match", color: "#3aa596" },
+  "corridor-fallback":  { label: "Fallback guess", color: "#e0a458" },
+  "corridor-fallback-ai": { label: "AI-resolved",  color: "#4f9dff" },
   stopped:              { label: "Stopped",       color: "#e08a7a" },
   complete:             { label: "Complete",      color: "var(--brass)" },
   pathfinder:           { label: "Pathfinder",    color: "var(--brass)" },
@@ -10073,9 +10909,61 @@ function renderTimeline() {
   });
 }
 
-function setInvStatus(text) {
+function setInvStatus(text, aiActive) {
   const el = document.getElementById("invStatus");
-  if (el) el.textContent = text;
+  if (!el) return;
+  el.textContent = text;
+  el.classList.toggle("ai-thinking", !!aiActive);
+}
+
+// Live "endpoint found" banner — separate from the timeline log entry.
+// Reaching a confirmed exchange on ONE branch deliberately does NOT stop
+// the other branches automatically (see the REVERTED comment at the
+// endpoint-exchange handler below) — a real case in this app's own history
+// had two equally-legitimate branches ending at two different exchanges
+// (OKX and Bybit), and a global auto-halt on the first hit would have
+// silently dropped the second, real answer. So per-branch behavior stays
+// correct by default. But that leaves no fast way to say "I have what I
+// need, stop the rest" the MOMENT it's found, short of noticing it in the
+// timeline log and reaching for the generic Stop button — confirmed real
+// case (2026-08-10): a user had to manually stop a run several minutes
+// after their answer was already found, because nothing surfaced that fact
+// prominently enough to act on immediately. This banner is that: it lists
+// every exchange reached SO FAR in the current run, live, with a one-click
+// way to stop everything else right there — using the exact same
+// run.stopRequested mechanism as the Stop trace button, just reachable at
+// the moment it's actually useful instead of only in the corner.
+function renderExchangeFoundBar(run) {
+  const bar = document.getElementById("exchangeFoundBar");
+  if (!bar) return;
+  if (!run || !run.active || !run.exchangeHits || !run.exchangeHits.length) { bar.style.display = "none"; return; }
+  bar.style.display = "flex";
+  const names = [...new Set(run.exchangeHits.map(h => h.label))];
+  const adv = run.branchAdvice;
+  let adviceHtml = "";
+  if (adv && adv.status === "loading") {
+    adviceHtml = `<span class="ai-thinking" style="flex-basis:100%; font-size:12px;">🤖 Asking AI whether the remaining branches are worth continuing…</span>`;
+  } else if (adv && adv.status === "ready") {
+    const confColor = { high: "#5fd98a", medium: "#e0b04a", low: "#97a4bb" }[adv.confidence] || "#97a4bb";
+    const recLabel = { continue: "Worth continuing", stop: "Likely done — safe to stop", unclear: "Can't tell from the data" }[adv.recommendation] || adv.recommendation;
+    adviceHtml = `<div style="flex-basis:100%; border-top:1px solid rgba(95,217,138,0.25); margin-top:6px; padding-top:6px;">
+      <span style="color:${confColor}; font-weight:600; font-size:12px;">🤖 AI: ${escapeHtml(recLabel)}</span>
+      <span style="color:${confColor}; font-size:11px;"> &middot; ${escapeHtml(adv.confidence)} confidence</span>
+      <div style="font-size:12px; color:var(--text-2); margin-top:2px;">${escapeHtml(adv.reason)}</div>
+      <div style="font-size:11px; color:var(--text-3); margin-top:2px;">Advisory only — verify before relying on it. You decide either way.</div>
+    </div>`;
+  } else if (adv && adv.status === "error") {
+    adviceHtml = `<span style="flex-basis:100%; font-size:11.5px; color:var(--text-3);">AI advisory unavailable — deciding is still entirely up to you.</span>`;
+  }
+  bar.innerHTML = `
+    <span class="inv-status" style="color:#5fd98a;">✓ Reached ${names.length > 1 ? names.join(" and ") : names[0]}${run.exchangeHits.length > names.length ? ` (${run.exchangeHits.length} branches)` : ""} — other branches may still be tracing for additional endpoints.</span>
+    <button class="small" id="exchangeFoundStopBtn" style="border-color:#2f9e5c; color:#5fd98a;">Stop remaining branches — I have my answer</button>
+    ${adviceHtml}`;
+  const btn = document.getElementById("exchangeFoundStopBtn");
+  if (btn) btn.onclick = () => {
+    if (investigationRun && investigationRun.active) { investigationRun.stopRequested = true; setInvStatus("Stopping after the current wallet…"); }
+    bar.style.display = "none";
+  };
 }
 
 // Hub-first inbound analysis: after the root wallet is traced, characterize
@@ -10221,21 +11109,63 @@ function matchAnchorTransfers(events, anchor) {
 // flows; the traced tranche leaves in a handful of transfers shortly after
 // it lands.
 // Returns { picks: [{cp, sent}], mode: "events" | "cumulative" | "fallback" }.
-function selectOnwardFlows(events, parentAddr, valueIn, outsAll, maxBranch) {
-  const fallback = () => ({ picks: outsAll.slice().sort((x, y) => y.sent - x.sent).slice(0, maxBranch), mode: "fallback" });
-  if (!(valueIn > 0) || !outsAll.length) return fallback();
+function selectOnwardFlows(events, parentAddr, valueIn, outsAll, maxBranch, tsInHint) {
+  // Fallback picks (both branches below) are a guess — "we couldn't find the
+  // actual transaction, so follow whatever this wallet's biggest lifetime
+  // counterparties are." That's fine as a single best-effort guess, but
+  // spawning up to maxBranch (4) parallel guesses at EVERY uncertain hop
+  // compounds: on a hub-heavy case, a fallback's own top branches are often
+  // themselves other hubs, which themselves fall back into 4 more branches,
+  // recursively. Confirmed real case (2026-08-10): after the exchange-halt
+  // fix stopped killing the whole run on the first exchange hit, a case with
+  // several fallback hops kept expanding through dozens of unrelated
+  // largest-lifetime-flow branches long after the real corridor (Bybit) had
+  // already been found, because every fallback used the same branch budget
+  // as a genuine, evidence-backed split. A genuine split (the "events" mode
+  // chronological walk below, backed by matching transaction data) still
+  // gets the full maxBranch — multiple legs there are actual evidence, not a
+  // guess. Only the two guess-based paths are narrowed.
+  const FALLBACK_MAX_BRANCH = 1;
+  const fallback = (reason) => ({ picks: outsAll.slice().sort((x, y) => y.sent - x.sent).slice(0, FALLBACK_MAX_BRANCH), mode: "fallback", reason });
+  if (!(valueIn > 0) || !outsAll.length) return fallback(!( valueIn > 0) ? "no inbound value recorded for this hop" : "no outbound edges at all on this wallet");
   // --- Preferred: event-timed matching. Find when the traced value arrived
   // from the parent, then greedily take outbound transfers AFTER that moment
   // (earliest first — launderers move promptly) until the arrival is
   // accounted for. Handles splits (3 × ~500k covering a 1.58M arrival) and
   // pass-throughs (one transfer) with the same rule.
+  if (!Array.isArray(events) || !events.length) return fallback("no per-transfer event data available for this hop's own fetch");
+  if (!parentAddr) return fallback("no parent address recorded for this hop");
   if (Array.isArray(events) && events.length && parentAddr) {
     const pk = parentAddr.toLowerCase();
     const arrivals = events.filter(e => e.type === "in" && (e.counterparty || "").toLowerCase() === pk && e.value > 0);
     let arrivalTs = null;
     if (arrivals.length) {
-      arrivals.sort((a, b) => Math.abs(a.value - valueIn) - Math.abs(b.value - valueIn)); // the arrival closest in size to the traced value
+      // DATE FIRST, VALUE AS TIEBREAK ONLY. A hub like 998e can send the same
+      // downstream wallet transfers at completely different points in its
+      // history — an old, unrelated payment can coincidentally be closer in
+      // SIZE to the traced value than the real theft-era transfer is. Sorting
+      // by value alone anchors on that unrelated transfer and drags the whole
+      // 30-day onward-search window off to the wrong month (confirmed case
+      // 2026-08-09: a 998e→exchange arrival matched a transfer dated a full
+      // month before the theft, sending the OKX branch instead of the real
+      // 378b2e10→Bybit corridor). When we already know roughly when this hop's
+      // funds arrived (tsInHint, threaded from the parent hop), prefer the
+      // arrival closest to THAT moment; value only breaks ties between
+      // same-day candidates. Falls back to value-only sorting when tsInHint
+      // isn't available, so nothing regresses for hops reached without it.
+      if (tsInHint) {
+        arrivals.sort((a, b) => {
+          const da = Math.abs(new Date(a.ts).getTime() - tsInHint);
+          const db = Math.abs(new Date(b.ts).getTime() - tsInHint);
+          if (da !== db) return da - db;
+          return Math.abs(a.value - valueIn) - Math.abs(b.value - valueIn);
+        });
+      } else {
+        arrivals.sort((a, b) => Math.abs(a.value - valueIn) - Math.abs(b.value - valueIn)); // the arrival closest in size to the traced value
+      }
       arrivalTs = new Date(arrivals[0].ts).getTime();
+    } else {
+      return fallback(`no inbound transfer from parent ${parentAddr} found in this hop's fetched events (${events.length} events total) — the specific arrival transaction wasn't in the window that was fetched`);
     }
     if (arrivalTs) {
       const cands = events
@@ -10244,6 +11174,20 @@ function selectOnwardFlows(events, parentAddr, valueIn, outsAll, maxBranch) {
         .map(e => ({ cp: e.counterparty, sent: e.value, ts: new Date(e.ts).getTime() }))
         .filter(e => e.ts >= arrivalTs - 36e5 && e.ts <= arrivalTs + 30 * 864e5) // 1h grace before (block ordering), 30d window after
         .sort((a, b) => a.ts - b.ts);
+      if (!cands.length) return fallback(`arrival matched (${new Date(arrivalTs).toISOString()}) but no outbound transfers found within the 30-day window after — the real onward transfer may be further out, or wasn't in this hop's fetched event window`);
+      // REVERTED 2026-08-10: a "closest single value match" fast-path and an
+      // "oversized leg" guard were added here at some point after 2026-08-06,
+      // both by a prior session, both intended to fix a 998e-related failure.
+      // They caused a worse one: EeD30949's real three-way split into 998e
+      // (three legs, ~500K-580K each, correctly summed to cover the arrival
+      // by the plain walk below) was being skipped in favor of a single
+      // coincidentally-similar-value transfer to an unrelated OpenOcean
+      // router contract, because that fast path ran BEFORE the walk ever got
+      // a chance to sum the real legs. Confirmed against the working
+      // 2026-08-06 backup, which has neither addition and correctly finds
+      // EeD30949 → 998e → 9aA0 → Bybit Hot Wallet 1. Restored to that exact
+      // algorithm: walk chronologically, sum legs until 95% of the arrival
+      // is covered. No value-proximity short-circuit, no oversize guard.
       const picks = []; const seen = new Map(); let cum = 0; let firstPickTs = null; let covered = false;
       for (const c of cands) {
         if (c.sent < valueIn * 0.005) continue; // dust / gas change
@@ -10256,23 +11200,28 @@ function selectOnwardFlows(events, parentAddr, valueIn, outsAll, maxBranch) {
         if (covered && (firstPickTs === null || c.ts > firstPickTs + 6 * 36e5)) break;
         const k = c.cp.toLowerCase();
         if (seen.has(k)) { const p = seen.get(k); p.sent += c.sent; cum += c.sent; }
-        else if (picks.length < maxBranch) { const p = { cp: c.cp, sent: c.sent }; picks.push(p); seen.set(k, p); if (firstPickTs === null) firstPickTs = c.ts; cum += c.sent; }
+        else if (picks.length < maxBranch) { const p = { cp: c.cp, sent: c.sent, ts: c.ts }; picks.push(p); seen.set(k, p); if (firstPickTs === null) firstPickTs = c.ts; cum += c.sent; }
         else break;
         if (cum >= valueIn * 0.95) covered = true;
       }
       if (picks.length) return { picks, mode: "events" };
+      // fell through: arrival matched and candidates existed, but the pick
+      // loop filtered all of them out (dust threshold, or window logic) —
+      // record that distinctly from "no arrival" and "no candidates at all"
+      // above, since it points at a different tuning knob if it's wrong.
+      return fallback(`arrival and ${cands.length} candidate transfer(s) found, but none passed the dust/coverage filters — falling back to largest-lifetime-flow selection`);
     }
   }
   // --- Fallback: edge totals, largest first, until the inbound value is covered.
   const sorted = outsAll.slice().sort((x, y) => y.sent - x.sent);
   const picks = []; let cum = 0;
   for (const o of sorted) {
-    if (picks.length >= maxBranch) break;
+    if (picks.length >= FALLBACK_MAX_BRANCH) break;
     if (o.sent < valueIn * 0.005) break;
     picks.push(o); cum += o.sent;
     if (cum >= valueIn * 0.95) break;
   }
-  return picks.length ? { picks, mode: "cumulative" } : fallback();
+  return picks.length ? { picks, mode: "cumulative" } : fallback("no outbound edges cleared the dust threshold even by lifetime total");
 }
 
 async function traceFundsAuto(rootAddress, chain, anchor) {
@@ -10282,24 +11231,61 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
     maxWallets: 100,  // full wallet traces per run
     maxBranch: 4,     // largest onward flows followed per wallet
     hopDelayMs: 700,  // spacing between wallets, on top of per-page fetch delays
-    deepMaxPages: 40, // page cap per wallet BEYOND the root (~2,000 most-recent txs) — high-traffic hubs are sampled around the theft window, not exhaustively paginated. The root is always fetched in full.
+    deepMaxPages: 40, // page cap per wallet — high-traffic hubs are sampled around the theft window, not exhaustively paginated. Now applies to the root too whenever an anchor date is set, fetching ascending from just before the theft date instead of depending on scan-mode page limits.
     anchor: (anchor && (anchor.token || anchor.amount || anchor.dateMs)) ? anchor : null,
   };
   // Deep wallets: cap pagination, and when the theft date is known, stop
   // fetching once pages pass below (theft date − 7 days). Newest-first pages
   // mean the theft-period transfers are always captured; what's skipped is
   // ancient pre-theft history that can't contain the stolen funds.
-  const deepFetchOpts = {
-    maxPages: cfg.deepMaxPages,
-    stopBeforeTs: cfg.anchor && cfg.anchor.dateMs ? cfg.anchor.dateMs - 7 * 864e5 : null,
-  };
-  const run = { active: true, stopRequested: false, walletsTraced: 0 };
+  //
+  // That works when a wallet went quiet soon after the theft. It DOESN'T
+  // work for a long-lived, still-active hub — newest-first pagination has to
+  // page back through everything that's happened SINCE the theft before ever
+  // reaching the theft-era window, and the page cap can run out first.
+  // Confirmed failure: a deep scan of a hub active from well before the
+  // theft through the present day reproduced a disputed/already-reversed
+  // conduit route instead of the verified one, because the real transfer's
+  // page was never reached within the cap.
+  //
+  // buildDeepFetchOpts is now per-hop, not a single constant built once
+  // before the loop: when this specific hop's arrival timestamp (hop.tsIn,
+  // threaded through from selectOnwardFlows above) is known, it looks up the
+  // nearest block and fetches ASCENDING from there — the theft-relevant
+  // window becomes the FIRST thing fetched, not something hopefully still
+  // reachable after a year of subsequent activity gets paged through first.
+  // Falls straight back to the original stopBeforeTs/desc behavior whenever
+  // tsIn is missing or the block lookup fails — nothing regresses.
+  async function buildDeepFetchOpts(hop) {
+    const stopBeforeTs = cfg.anchor && cfg.anchor.dateMs ? cfg.anchor.dateMs - 7 * 864e5 : null;
+    if (hop && hop.tsIn) {
+      const lookup = await blockNumberNear(hop.chain, hop.tsIn - 36e5); // 1h grace before arrival, same grace window selectOnwardFlows already uses
+      if (lookup && lookup.block) {
+        logTimeline({ type: "fetch-window", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent,
+          note: `Scanning ascending from block ${lookup.block} (arrival ${new Date(hop.tsIn).toISOString()}) instead of newest-first.` });
+        return { maxPages: cfg.deepMaxPages, sinceBlock: lookup.block, sortAsc: true };
+      }
+      logTimeline({ type: "fetch-window", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent,
+        note: `Arrival time known (${new Date(hop.tsIn).toISOString()}) but block lookup failed — falling back to newest-first scan. Reason: ${(lookup && lookup.reason) || "unknown"}` });
+    } else {
+      logTimeline({ type: "fetch-window", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent,
+        note: "No arrival timestamp available for this hop — using newest-first scan (unchanged behavior)." });
+    }
+    return { maxPages: cfg.deepMaxPages, stopBeforeTs };
+  }
+  const run = { active: true, stopRequested: false, walletsTraced: 0, exchangeHits: [] };
   investigationRun = run;
   nextStepSuggestion = null; // clear any suggestion left over from a previous trace — it referred to a different run's dead-ends
+  fallbackDiagnosis = null; // same — a diagnosis belongs to a specific run's fallback list
+  const fallbackEvents = []; // corridor-fallback incidents this run, for the AI diagnosis feature at the end
   document.getElementById("invBar").style.display = "flex";
+  { const efb = document.getElementById("exchangeFoundBar"); if (efb) efb.style.display = "none"; } // clear any leftover banner from a previous run
   const counts = { relays: 0, consolidations: 0, exchanges: 0, bridges: 0, dexes: 0 };
   logTimeline({ type: "start", address: rootAddress, chain,
-    note: `Automated trace started — following outbound value from ${short(rootAddress)}, up to ${cfg.maxDepth} hops and ${cfg.maxWallets} wallets. Beyond the root, high-traffic wallets are sampled (${cfg.deepMaxPages} most-recent pages${cfg.anchor && cfg.anchor.dateMs ? ", always reaching back past the theft date" : ""}) and only outbound flows that account for the traced value are pursued.`
+    note: `Automated trace started — following outbound value from ${short(rootAddress)}, up to ${cfg.maxDepth} hops and ${cfg.maxWallets} wallets.`
+      + (cfg.anchor && cfg.anchor.dateMs
+        ? ` Theft date known: every wallet in this trace, including the root, is fetched ascending from just before ${new Date(cfg.anchor.dateMs).toISOString()} — scan mode no longer limits how far back a fetch can reach.`
+        : ` Beyond the root, high-traffic wallets are sampled (${cfg.deepMaxPages} most-recent pages) and only outbound flows that account for the traced value are pursued.`)
       + (cfg.anchor ? ` Theft anchor active: ${[cfg.anchor.token, cfg.anchor.amount ? cfg.anchor.amount.toLocaleString() : null, cfg.anchor.dateMs ? new Date(cfg.anchor.dateMs).toISOString().slice(0,10) : null].filter(Boolean).join(" · ")} — only the matching outbound transfer(s) will be followed from the starting wallet.` : "") });
 
   // Exchange-root guard: if the user starts on a centralized-exchange wallet,
@@ -10373,11 +11359,31 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
         logTimeline({ type: "endpoint-exchange", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent, value: hop.valueIn,
           note: `Funds reached ${exLabel} — centralized exchange endpoint. This branch HARD-STOPS here (tracing through an exchange only follows other customers' withdrawals, not your funds). This is where a compliance notice or legal request can attach an identity to the money.` });
         maybeLogCrossChainHint(hop.address, hop.chain, exLabel);
-        // Reaching an exchange halts the WHOLE run — sibling branches are not
-        // auto-continued. Whatever else was queued is preserved so the user can
-        // explicitly choose to keep exploring the rest of the network.
+        run.exchangeHits.push({ label: exLabel, address: hop.address, depth: hop.depth, value: hop.valueIn || null });
+        renderExchangeFoundBar(run);
+        if (aiIsConfigured()) {
+          const pendingSnapshot = queue.slice();
+          run.branchAdvice = { status: "loading" };
+          renderExchangeFoundBar(run);
+          recommendBranchAction(run, pendingSnapshot).then((advice) => {
+            run.branchAdvice = advice ? Object.assign({ status: "ready" }, advice) : { status: "error" };
+            renderExchangeFoundBar(run);
+          });
+        }
+        // REVERTED 2026-08-10: this used to also set run.stopRequested = true,
+        // halting the ENTIRE queue the moment ANY branch reached an exchange —
+        // not just this branch. Confirmed real failure: 998e fans out into
+        // multiple legitimate branches (this run: both 9aA0→Bybit and
+        // d500→OKX), and whichever one happened to reach an exchange FIRST
+        // killed the whole run before the other, equally-real branch could
+        // finish — even though 9aA0 had already been correctly reached and
+        // was one hop from completing. maxWallets (100) and maxDepth (10) —
+        // both already enforced independently below — are the actual budget
+        // guards; an exchange hit doesn't need to duplicate that by nuking
+        // every other in-flight branch. This hop is still a terminal leaf
+        // (no further hops get queued FROM it, see the `continue` below) —
+        // only the OTHER, unrelated branches keep running now.
         run.exchangeHalt = true;
-        run.stopRequested = true;
         scheduleSave(); renderAll();
         continue;
       }
@@ -10428,7 +11434,20 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
       if (hop.depth > 0 && run.walletsTraced >= cfg.maxWallets) continue; // budget spent: keep classifying queued endpoints, skip full traces
       if (hop.depth > 0) run.walletsTraced++;
       setInvStatus(`Hop ${hop.depth} · tracing ${short(hop.address)} (wallet ${run.walletsTraced}/${cfg.maxWallets})…`);
-      const hopAnalysis = await investigate(hop.address, hop.chain, hop.depth > 0 ? deepFetchOpts : null);
+      // The root gets anchor-aware fetching too, not just hops beyond it —
+      // "the root is always fetched in full" was only ever true for a
+      // low-activity personal wallet; this wallet has real ongoing DEX/swap
+      // activity, and whichever scan mode happened to be selected controlled
+      // how far back a plain newest-first fetch could reach, with zero
+      // connection to the theft date. If the anchor date is known, there's
+      // no reason mode should matter at all: fetch ascending from just
+      // before the theft date, exactly like every other anchored hop, so
+      // the anchor-date window is always the FIRST thing captured regardless
+      // of how much has happened on this wallet since.
+      const fetchOptsForHop = (hop.depth > 0 || (cfg.anchor && cfg.anchor.dateMs))
+        ? await buildDeepFetchOpts(hop.depth > 0 ? hop : { ...hop, tsIn: cfg.anchor.dateMs })
+        : null;
+      const hopAnalysis = await investigate(hop.address, hop.chain, fetchOptsForHop);
       const node = nodeIndex().get(key);
       if (!node || !node.investigated) {
         logTimeline({ type: "dead-end", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent,
@@ -10467,14 +11486,44 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
             matched.forEach(ev => {
               const k = ev.counterparty.toLowerCase();
               const prev = byCp.get(k);
-              byCp.set(k, { cp: ev.counterparty, sent: (prev ? prev.sent : 0) + ev.value });
+              const evTs = new Date(ev.ts).getTime();
+              // Keep the LATEST matched transfer's timestamp per recipient —
+              // that's the moment the full accumulated amount was in place,
+              // the right anchor for scanning that recipient's own outbound
+              // history forward from. (Earliest would risk starting the
+              // window before some of the value had even arrived yet.)
+              byCp.set(k, { cp: ev.counterparty, sent: (prev ? prev.sent : 0) + ev.value, ts: prev && prev.ts > evTs ? prev.ts : evTs });
             });
             anchorPicks = [...byCp.values()];
             logTimeline({ type: "anchor", address: hop.address, chain: hop.chain, depth: 0,
               note: `Theft anchor matched ${matched.length} outbound transfer(s) totaling ${matched.reduce((a,e)=>a+e.value,0).toLocaleString(undefined,{maximumFractionDigits:2})} across ${anchorPicks.length} recipient(s). Following ONLY those recipient(s) — this wallet's other counterparties (personal wallets, swaps, unrelated activity) are not traced.` });
           } else {
+            // Same funnel matchAnchorTransfers applies internally (type=out
+            // → symbol → date window → amount window), but reported stage by
+            // stage instead of a single opaque "no match" — so a genuinely
+            // intermittent failure (the exact case tonight: this matched
+            // fine on earlier runs of the same wallet/token/amount/date)
+            // shows WHICH filter actually excluded the real transaction,
+            // rather than requiring another guess.
+            const outEvents = (hopAnalysis.events || []).filter(e => e.type === "out" && e.value > 0 && e.counterparty);
+            const sym = (cfg.anchor.token || "").trim().toLowerCase();
+            const bySymbol = sym ? outEvents.filter(e => e.token && e.token.toLowerCase().includes(sym)) : outEvents;
+            const dateMs = cfg.anchor.dateMs || null;
+            const byDate = dateMs ? bySymbol.filter(e => { const t = new Date(e.ts).getTime(); return t >= dateMs - 24 * 36e5 && t <= dateMs + 72 * 36e5; }) : bySymbol;
+            const amt = cfg.anchor.amount ? Number(cfg.anchor.amount) : null;
+            const byAmount = amt ? byDate.filter(e => { const r = e.value / amt; return r >= 0.5 && r <= 1.5; }) : byDate;
+            // Closest-by-amount candidate within the date+symbol window, even
+            // though it didn't clear the amount tolerance — often the fastest
+            // way to spot a stale/wrong anchor amount (fees, partial theft,
+            // a typo) versus a genuine data gap.
+            const closest = bySymbol.length
+              ? bySymbol.slice().sort((a, b) => Math.abs((a.ts ? new Date(a.ts).getTime() : 0) - (dateMs || 0)) - Math.abs((b.ts ? new Date(b.ts).getTime() : 0) - (dateMs || 0)))[0]
+              : null;
             logTimeline({ type: "anchor", address: hop.address, chain: hop.chain, depth: 0,
-              note: `Theft anchor matched NO outbound transfers — the token symbol, amount, or date may not line up with explorer data (check the exact symbol, e.g. "stXRP", and the theft date). Falling back to the standard largest-flows heuristic for this run.` });
+              note: `Theft anchor matched NO outbound transfers. Funnel: ${outEvents.length} outbound transfer(s) fetched → ${bySymbol.length} match token "${cfg.anchor.token || "(none set)"}" → ${byDate.length} also fall within the date window (theft date ±1-3 days) → ${byAmount.length} also fall within 0.5×–1.5× of ${amt ? amt.toLocaleString() : "(no amount set)"}.`
+                + (closest ? ` Closest candidate outside the window: ${closest.value.toLocaleString()} ${closest.token || ""} at ${closest.ts}.` : " No transfer of the specified token was found in this wallet's fetched history at all.")
+                + (hopAnalysis.fetchIncomplete ? ` ⚠ This wallet's fetch was cut short by a ${hopAnalysis.fetchIncomplete === "rate-limit" ? "rate limit" : "fetch error"} partway through pagination — the numbers above may be INCOMPLETE, not a confirmed absence. Retry before trusting this "no match" result.` : "")
+                + ` Falling back to the standard largest-flows heuristic for this run.` });
           }
         }
         const outsAll = anchorPicks ? [] : state.edges.map((e) => {
@@ -10491,11 +11540,83 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
         } else if (hop.depth > 0) {
           // Value-corridor selection: follow the flows that account for what
           // arrived, not the wallet's biggest lifetime counterparties.
-          const sel = selectOnwardFlows(hopAnalysis && hopAnalysis.events, hop.parent, hop.valueIn, outsAll, cfg.maxBranch);
-          picks = sel.picks;
+          let sel = selectOnwardFlows(hopAnalysis && hopAnalysis.events, hop.parent, hop.valueIn, outsAll, cfg.maxBranch, hop.tsIn || null);
+          // Before conceding to a guess, check whether this was actually a
+          // DATA problem rather than a genuine dead end. Confirmed real case
+          // (2026-08-10, 998e hub): the fallback fired because "the specific
+          // arrival transaction wasn't in the window that was fetched" — the
+          // 40-page cap simply hadn't reached it yet. No amount of reasoning
+          // (AI or otherwise) over an incomplete window recovers a
+          // transaction that was never fetched; only fetching more of it
+          // does. One retry only, at 3x the page cap, and only for the two
+          // failure reasons that are actually about missing data — not e.g.
+          // "no outbound edges at all", which more pages can't fix, and not
+          // the dust/coverage-filter miss, which is a filtering outcome on
+          // data already in hand, not a data gap.
+          const dataCompletenessMiss = sel.mode !== "events" && sel.reason && (
+            sel.reason.includes("wasn't in the window that was fetched") ||
+            sel.reason.includes("no outbound transfers found within the 30-day window"));
+          if (dataCompletenessMiss && node.scanTruncated) {
+            logTimeline({ type: "fetch-window", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent,
+              note: `Corridor match failed on a page-capped fetch (${node.scanPages || cfg.deepMaxPages} pages) — retrying this wallet with a deeper scan (${cfg.deepMaxPages * 3} pages) before falling back to a guess.` });
+            const widerOpts = Object.assign({}, fetchOptsForHop, { maxPages: cfg.deepMaxPages * 3 });
+            const hopAnalysis2 = await investigate(hop.address, hop.chain, widerOpts);
+            if (hopAnalysis2) {
+              const retrySel = selectOnwardFlows(hopAnalysis2.events, hop.parent, hop.valueIn, outsAll, cfg.maxBranch, hop.tsIn || null);
+              if (retrySel.mode === "events") {
+                sel = retrySel;
+                logTimeline({ type: "corridor", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent, value: hop.valueIn,
+                  note: `Deeper scan found the real transaction corridor — followed ${sel.picks.length} outbound transfer(s) that account for the traced value. The original page-capped fetch had missed it.` });
+              }
+            }
+          }
+          // Genuine ambiguity, not a data gap (the retry above already had
+          // its shot): full history is in hand, but no clear onward
+          // corridor. This is where AI judgment actually applies — see the
+          // scope note on resolveCorridorFallbackWithAi above. Runs INLINE,
+          // so a correct resolution continues the SAME run automatically —
+          // no separate "stuck, click Ask AI, start a new trace" round trip.
+          // Silently skipped (falls through to the existing largest-
+          // lifetime-flow guess) whenever AI isn't configured or errors —
+          // zero behavior change for anyone not using this feature.
+          let aiResolved = null;
+          if (sel.mode !== "events") {
+            setInvStatus(`Hop ${hop.depth} · ${short(hop.address)} — 🤖 asking AI to weigh the candidate corridors…`, true);
+            aiResolved = await resolveCorridorFallbackWithAi(hop, outsAll, sel.reason, hopAnalysis && hopAnalysis.fetchIncomplete);
+            setInvStatus(`Hop ${hop.depth} · tracing ${short(hop.address)} (wallet ${run.walletsTraced}/${cfg.maxWallets})…`);
+          }
+          picks = aiResolved ? [{ cp: aiResolved.cp, sent: aiResolved.sent }] : sel.picks;
           if (sel.mode === "events" && outsAll.length >= 100) {
             logTimeline({ type: "corridor", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent, value: hop.valueIn,
               note: `Followed ${picks.length} outbound transfer(s) inside the arrival window that account for the traced value — the other ${(outsAll.length - picks.length).toLocaleString()} counterparties on this high-traffic wallet are unrelated flows and were not pursued.` });
+          } else if (sel.mode !== "events" && aiResolved) {
+            logTimeline({ type: "corridor-fallback-ai", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent, value: hop.valueIn,
+              note: `No specific transaction corridor could be matched (${outsAll.length.toLocaleString()} counterparties, reason: ${sel.reason || "unknown"}) — AI reviewed the ${Math.min(outsAll.length, 15)} largest candidates and picked ${short(aiResolved.cp)} (${aiResolved.confidence} confidence): ${aiResolved.reason} This is still a judgment call, not confirmed evidence — verify before relying on it.` });
+            fallbackEvents.push({
+              address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent,
+              tsIn: hop.tsIn || null, counterpartyCount: outsAll.length,
+              eventsFetched: (hopAnalysis && hopAnalysis.events && hopAnalysis.events.length) || 0,
+              fetchIncomplete: hopAnalysis.fetchIncomplete || null, reason: sel.reason || null,
+              aiResolved: true, aiConfidence: aiResolved.confidence, aiPick: aiResolved.cp,
+            });
+          } else if (sel.mode !== "events") {
+            // Log this EVERY time, regardless of how big the wallet is — not
+            // just hubs with 100+ counterparties. Confirmed miss: a 53-branch
+            // wallet fell into fallback mode and silently dropped the
+            // timestamp needed for the NEXT hop's ascending fetch, with no
+            // log line to explain why, because it sat under the old
+            // 100-counterparty gate. A fallback on a modest wallet is just
+            // as diagnostically important as one on a massive hub — it's
+            // exactly where a trail quietly goes off the rails.
+            logTimeline({ type: "corridor-fallback", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent, value: hop.valueIn,
+              note: `Could not match a specific transaction corridor on this high-traffic wallet (${outsAll.length.toLocaleString()} counterparties) — fell back to largest-lifetime-flow selection (mode: ${sel.mode}). Reason: ${sel.reason || "unknown"}`
+                + (hopAnalysis.fetchIncomplete ? ` ⚠ This wallet's fetch was cut short by a ${hopAnalysis.fetchIncomplete === "rate-limit" ? "rate limit" : "fetch error"} partway through — this fallback may be based on incomplete data. Retry recommended.` : "") });
+            fallbackEvents.push({
+              address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent,
+              tsIn: hop.tsIn || null, counterpartyCount: outsAll.length,
+              eventsFetched: (hopAnalysis && hopAnalysis.events && hopAnalysis.events.length) || 0,
+              fetchIncomplete: hopAnalysis.fetchIncomplete || null, reason: sel.reason || null,
+            });
           }
         } else {
           picks = outsAll.slice().sort((x, y) => y.sent - x.sent).slice(0, cfg.maxBranch);
@@ -10516,7 +11637,7 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
           const cpKey = o.cp.toLowerCase();
           if (SYSTEM_ADDRESSES.has(cpKey)) return; // burns/wraps — never a lead
           if (isExcludedAddr(cpKey)) return;       // investigator's own / known-clean wallet — never a lead
-          if (!visited.has(cpKey)) queue.push({ address: o.cp, chain: hop.chain, depth: hop.depth + 1, valueIn: o.sent, parent: hop.address });
+          if (!visited.has(cpKey)) queue.push({ address: o.cp, chain: hop.chain, depth: hop.depth + 1, valueIn: o.sent, tsIn: o.ts || null, parent: hop.address });
         });
       }
       await sleep(cfg.hopDelayMs);
@@ -10524,6 +11645,7 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
   } finally {
     run.active = false;
     document.getElementById("invBar").style.display = "none";
+    { const efb = document.getElementById("exchangeFoundBar"); if (efb) efb.style.display = "none"; } // run.active=false makes renderExchangeFoundBar hide it too, but do it directly so it's gone immediately, not on the next render
     const feederBit = (counts.depositors !== undefined)
       ? ` Root is an exchange: ${counts.depositors} inbound deposit(s) mapped for reference (not victims); downstream not traced.`
       : (counts.victimFeeders !== undefined)
@@ -10555,7 +11677,7 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
     // and it's the only state where the button (and therefore any API call)
     // is even reachable in the rendered UI.
     const inconclusive = !run.exchangeHalt && !run.stopRequested && counts.exchanges === 0;
-    try { renderTraceDonePrompt(rootAddress, !!run.exchangeHalt, inconclusive, visited); } catch (e) {}
+    try { renderTraceDonePrompt(rootAddress, !!run.exchangeHalt, inconclusive, visited, fallbackEvents); } catch (e) {}
   }
 }
 
@@ -10567,9 +11689,9 @@ function renderTraceDonePromptRefresh() {
   if (lastTraceDonePromptArgs) renderTraceDonePrompt(...lastTraceDonePromptArgs);
 }
 let lastTraceDonePromptArgs = null;
-function renderTraceDonePrompt(rootAddress, haltedAtExchange, inconclusive, visitedAddresses) {
+function renderTraceDonePrompt(rootAddress, haltedAtExchange, inconclusive, visitedAddresses, fallbackEvents) {
   if (!rootAddress) return;
-  lastTraceDonePromptArgs = [rootAddress, haltedAtExchange, inconclusive, visitedAddresses];
+  lastTraceDonePromptArgs = [rootAddress, haltedAtExchange, inconclusive, visitedAddresses, fallbackEvents];
   let bar = document.getElementById("pathfinderPrompt");
   if (!bar) {
     bar = document.createElement("div");
@@ -10591,7 +11713,7 @@ function renderTraceDonePrompt(rootAddress, haltedAtExchange, inconclusive, visi
     if (!nextStepSuggestion) {
       aiBlock = `<button class="small" id="pfAskAi" style="border-color:#4f9dff; color:#7fb4ff;">Ask AI for next step</button>`;
     } else if (nextStepSuggestion.status === "loading") {
-      aiBlock = `<span style="flex-basis:100%; color:var(--text-2); font-size:12px;">Asking AI for a next step…</span>`;
+      aiBlock = `<span class="ai-thinking" style="flex-basis:100%; font-size:12px;">🤖 Asking AI for a next step…</span>`;
     } else if (nextStepSuggestion.status === "error") {
       aiBlock = `<span style="flex-basis:100%; color:#e08a7a; font-size:12px;">AI suggestion failed: ${escapeHtml(nextStepSuggestion.message)}</span>
         <button class="small" id="pfAskAiRetry" style="border-color:#4f9dff; color:#7fb4ff;">Retry</button>`;
@@ -10611,6 +11733,41 @@ function renderTraceDonePrompt(rootAddress, haltedAtExchange, inconclusive, visi
     }
   }
 
+  // Fallback-diagnosis block: independent of the inconclusive gate above — a
+  // run can reach a clean exchange endpoint AND still have had a corridor
+  // fallback somewhere along the way (confirmed real case: reached OKX fine,
+  // but only because 998e's fallback sent it there instead of the real
+  // corridor). Any fallback at all is worth a second look regardless of how
+  // the run ended.
+  let fallbackBlock = "";
+  if (fallbackEvents && fallbackEvents.length) {
+    if (!fallbackDiagnosis) {
+      fallbackBlock = `<div style="flex-basis:100%; border-top:1px solid var(--line); margin-top:6px; padding-top:8px;">
+        <span style="color:#e0a458; font-size:12px;">⚠ ${fallbackEvents.length} wallet(s) in this trace couldn't be matched to a specific transaction corridor and fell back to a guess — worth checking before trusting this path.</span>
+        <button class="small" id="pfAskAiFallback" style="border-color:#4f9dff; color:#7fb4ff; margin-left:6px;">Ask AI what to check</button>
+      </div>`;
+    } else if (fallbackDiagnosis.status === "loading") {
+      fallbackBlock = `<span class="ai-thinking" style="flex-basis:100%; font-size:12px;">🤖 Asking AI to diagnose the fallback(s)…</span>`;
+    } else if (fallbackDiagnosis.status === "error") {
+      fallbackBlock = `<span style="flex-basis:100%; color:#e08a7a; font-size:12px;">Diagnosis failed: ${escapeHtml(fallbackDiagnosis.message)}</span>
+        <button class="small" id="pfAskAiFallbackRetry" style="border-color:#4f9dff; color:#7fb4ff;">Retry</button>`;
+    } else if (fallbackDiagnosis.status === "ready") {
+      const confColor = { high: "#8fcf7a", medium: "#e0a458", low: "#e08a7a" };
+      fallbackBlock = `<div style="flex-basis:100%; border-top:1px solid var(--line); margin-top:6px; padding-top:8px;">
+        <div style="font-size:12px; color:var(--text-2); margin-bottom:4px;">AI diagnosis of corridor fallback(s) — advisory only, verify before acting</div>
+        ${fallbackDiagnosis.diagnoses.map((d, i) => `
+          <div style="margin-bottom:8px; font-size:12px;">
+            <div style="font-family:'Courier New',monospace; font-weight:600;">${escapeHtml(d.wallet)}
+              <span style="color:${confColor[d.confidence] || '#e0a458'}; font-family:inherit; font-weight:400;">&middot; ${escapeHtml(d.confidence)} confidence</span></div>
+            <div style="color:var(--text-2); margin:2px 0;"><b>Likely cause:</b> ${escapeHtml(d.cause)}</div>
+            <div style="color:var(--text-2); margin-bottom:4px;"><b>Next step:</b> ${escapeHtml(d.nextAction)}</div>
+            ${d.address ? `<button class="small pfFallbackRescan" data-idx="${i}" style="border-color:var(--brass); color:var(--brass);">Deep scan ${escapeHtml(d.wallet)}, then re-trace</button>` : ""}
+          </div>`).join("")}
+        <button class="small" id="pfAskAiFallbackAgain">Refresh diagnosis</button>
+      </div>`;
+    }
+  }
+
   bar.innerHTML = `
     <span class="inv-status" style="flex-basis:100%; color:var(--text-2);">
       ${haltedAtExchange
@@ -10622,7 +11779,8 @@ function renderTraceDonePrompt(rootAddress, haltedAtExchange, inconclusive, visi
     <button class="small" id="pfPromptAll">Pathfinder (all paths)</button>
     <button class="small" id="pfPromptExhibit">Chain-of-custody exhibit</button>
     <button class="small" id="pfPromptDismiss">Dismiss</button>
-    ${aiBlock}`;
+    ${aiBlock}
+    ${fallbackBlock}`;
   // Seed the shared inputs so both Pathfinder and the exhibit resolve the same
   // origin the trace just used — no retyping, and no chance of the map and the
   // exhibit being built from two different starting wallets.
@@ -10657,6 +11815,26 @@ function renderTraceDonePrompt(rootAddress, haltedAtExchange, inconclusive, visi
     const anch = rootNode && rootNode.traceAnchor;
     nextStepSuggestion = null;
     traceFundsAuto(suggestedAddr, suggestedChain, anch);
+  });
+  const askAiFallback = document.getElementById("pfAskAiFallback") || document.getElementById("pfAskAiFallbackRetry") || document.getElementById("pfAskAiFallbackAgain");
+  if (askAiFallback) askAiFallback.addEventListener("click", () => { fallbackDiagnosis = null; diagnoseFallbacks(fallbackEvents); });
+  document.querySelectorAll(".pfFallbackRescan").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const d = fallbackDiagnosis && fallbackDiagnosis.diagnoses && fallbackDiagnosis.diagnoses[Number(btn.dataset.idx)];
+      if (!d || !d.address) return;
+      btn.disabled = true; btn.textContent = "Scanning…";
+      try {
+        // sinceBlock is undefined here deliberately — investigateInner's own
+        // manual-scan fallback (see capFor fix above) resolves the ascending
+        // start point itself from the case's anchor, same as any other manual
+        // scan. No need to duplicate that lookup here.
+        await investigate(d.address, d.chain || "flare");
+        const anch = rootNode && rootNode.traceAnchor;
+        await traceFundsAuto(rootAddress, (nodeIndex().get(String(rootAddress).toLowerCase()) || {}).chain || "flare", anch);
+      } catch (e) {
+        btn.disabled = false; btn.textContent = `Deep scan ${d.wallet}, then re-trace (failed — retry)`;
+      }
+    });
   });
   try { bar.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
 }
@@ -10953,10 +12131,42 @@ let expandedFlagsAddr = null;
 // one-line summary — see the AI suggestion rendering below — so confirming
 // or rejecting doesn't leave a wall of evidence text sitting in the panel.
 let expandedAiAddr = null;
+let anchorParsePanelAddr = null; // which node's panel anchorParseState/anchorDescriptionDraft belong to
 function renderSidePanel() {
   const selectedNode = nodeIndex().get((state.selectedAddress||"").toLowerCase());
   const panel = document.getElementById("sidePanel");
+  // Preserve an in-progress edit against a background re-render clobbering
+  // it. renderSidePanel() rebuilds the whole panel's innerHTML — including
+  // every input's value="..." — and it gets called by several fire-and-
+  // forget async completions (ensureAddressTag below, AI status updates,
+  // etc.), not just direct user actions. If one of those lands WHILE the
+  // user is mid-edit in a field — typed/picked a corrected value but
+  // hasn't blurred yet — the rebuild silently reverts that field to the
+  // last SAVED value, and the user's correction is gone with no error and
+  // no indication anything happened. Confirmed real case: correcting the
+  // theft-anchor date, then having it silently revert before the trace
+  // used it. Same class of bug this file already worked around for
+  // timelineExpanded/expandedAiAddr (module-scope state that shouldn't
+  // reset on every render) — this is the form-field version of that: capture
+  // whatever's focused before the rebuild, restore it (value + cursor +
+  // focus) after.
+  const PRESERVE_FIELD_IDS = ["anchorToken", "anchorAmount", "anchorDate", "notesArea", "anchorDescription"];
+  const activeEl = document.activeElement;
+  const preserve = (panel && panel.contains(activeEl) && activeEl && PRESERVE_FIELD_IDS.includes(activeEl.id))
+    ? { id: activeEl.id, value: activeEl.value, selStart: (typeof activeEl.selectionStart === "number") ? activeEl.selectionStart : null, selEnd: (typeof activeEl.selectionEnd === "number") ? activeEl.selectionEnd : null }
+    : null;
   if (selectedNode) {
+    // Setup-assist state is scoped to one wallet's panel — a description
+    // typed for wallet A shouldn't reappear (or get submitted) against
+    // wallet B after the user taps a different node. Detected here rather
+    // than at every state.selectedAddress assignment site, since those are
+    // scattered across the file and this is the one place all of them
+    // funnel through before anything gets displayed.
+    if (anchorParsePanelAddr !== selectedNode.address) {
+      anchorParseState = null;
+      anchorDescriptionDraft = "";
+      anchorParsePanelAddr = selectedNode.address;
+    }
     ensureAddressTag(selectedNode); // fire-and-forget; re-renders itself once resolved
     const tagLine = selectedNode.autoLabel
       ? `<p class="card-hint" style="color:#c9a24b;">🏷 ${escapeHtml(selectedNode.autoLabel)} <span style="color:#7d8aa3;">(from block explorer)</span></p>`
@@ -11233,9 +12443,18 @@ function renderSidePanel() {
         <label>Notes</label>
         <textarea id="notesArea" placeholder="Case notes on this wallet…" style="min-height:180px;">${selectedNode.notes || ""}</textarea>
         </div>
-        <button class="small simple-only" id="simpleScamFlagBtn" style="border-color:#c0392b; color:${selectedNode.category === 'scam' ? '#0e1524' : '#e08a7a'}; background:${selectedNode.category === 'scam' ? '#c0392b' : 'transparent'}; margin-top:6px;">${selectedNode.category === 'scam' ? '✓ Flagged as scam' : 'Flag as scam 🚩'}</button>
+        <button class="small simple-only" id="simpleVictimFlagBtn" style="border-color:${CATEGORY_META.victim.color}; color:${selectedNode.category === 'victim' ? '#0e1524' : CATEGORY_META.victim.color}; background:${selectedNode.category === 'victim' ? CATEGORY_META.victim.color : 'transparent'}; margin-top:6px;">${selectedNode.category === 'victim' ? '✓ Flagged as likely victim' : 'Likely Victim 🎗'}</button>
         <label class="adv-only" style="margin-top:10px;">Theft anchor (optional) — auto-trace follows ONLY the matching outbound transfer(s) from this wallet</label>
         <label class="simple-only" style="margin-top:10px;">What was stolen from this wallet? (helps the trace follow the right money)</label>
+        <div class="simple-only" style="margin:4px 0 8px;">
+          <textarea id="anchorDescription" placeholder="Describe it in your own words — e.g. &quot;someone drained 8,306 stXRP from my wallet on June 16&quot;" style="min-height:52px; font-size:12.5px;">${escapeHtml(anchorDescriptionDraft || "")}</textarea>
+          <div style="display:flex; align-items:center; gap:8px; margin-top:4px; flex-wrap:wrap;">
+            <button class="small${anchorParseState && anchorParseState.status === "loading" ? " ai-thinking-btn" : ""}" id="anchorParseBtn" style="border-color:#4f9dff; color:#7fb4ff;" ${anchorParseState && anchorParseState.status === "loading" ? "disabled" : ""}>${anchorParseState && anchorParseState.status === "loading" ? "🤖 Reading…" : "Fill in fields for me →"}</button>
+            ${!aiIsConfigured() ? `<span style="font-size:11px; color:var(--text-3);">Needs an AI key — tap to set one up.</span>` : ""}
+          </div>
+          ${anchorParseState && anchorParseState.status === "error" ? `<p class="card-hint" style="color:#e08a7a; margin:4px 0 0;">${escapeHtml(anchorParseState.message)}</p>` : ""}
+          ${anchorParseState && anchorParseState.status === "ready" ? `<p class="card-hint" style="margin:4px 0 0; color:${{high:"#8fcf7a",medium:"#e0a458",low:"#e08a7a"}[anchorParseState.confidence] || "var(--text-2)"};">${escapeHtml(anchorParseState.note)}${anchorParseState.confidence !== "high" ? " Double-check the fields below before tracing." : ""}</p>` : ""}
+        </div>
         <div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:4px;">
           <input id="anchorToken" placeholder="${uiMode === 'simple' ? 'What token? (e.g. WFLR)' : 'Token (stXRP)'}" value="${escapeHtml((selectedNode.traceAnchor && selectedNode.traceAnchor.token) || "")}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1; min-width:90px;">
           <input id="anchorAmount" type="number" placeholder="${uiMode === 'simple' ? 'How much?' : 'Amount (8306)'}" value="${(selectedNode.traceAnchor && selectedNode.traceAnchor.amount) || ""}" style="flex:1; min-width:90px;">
@@ -11261,7 +12480,7 @@ function renderSidePanel() {
       e.stopPropagation();
       dropdownMenu.style.display = dropdownMenu.style.display === "none" ? "block" : "none";
     });
-    // Shared by the Advanced dropdown AND the Simple-mode "Flag as scam"
+    // Shared by the Advanced dropdown AND the Simple-mode "Likely Victim"
     // button — same conflict-detection/justification/durable-registry path
     // either way, so Simple mode gets the exact same safety net rather than
     // a shortcut that skips it.
@@ -11301,10 +12520,10 @@ function renderSidePanel() {
         applyCategoryChoice(opt.getAttribute("data-category"));
       });
     });
-    { const ssf = document.getElementById("simpleScamFlagBtn");
-      if (ssf) ssf.addEventListener("click", () => {
+    { const svf = document.getElementById("simpleVictimFlagBtn");
+      if (svf) svf.addEventListener("click", () => {
         const node = nodeIndex().get(selectedNode.address.toLowerCase());
-        applyCategoryChoice((node && node.category === "scam") ? "unclassified" : "scam");
+        applyCategoryChoice((node && node.category === "victim") ? "unclassified" : "victim");
       });
     }
     document.getElementById("notesArea").addEventListener("input", (e) => setNotes(selectedNode.address, e.target.value));
@@ -11365,6 +12584,15 @@ function renderSidePanel() {
       // keystroke; 'blur' catches a field left mid-edit when the user taps
       // straight to Save network.
       if (el) { el.addEventListener("change", persistAnchor); el.addEventListener("blur", persistAnchor); }
+    });
+    const anchorDescriptionEl = document.getElementById("anchorDescription");
+    if (anchorDescriptionEl) {
+      anchorDescriptionEl.addEventListener("input", () => { anchorDescriptionDraft = anchorDescriptionEl.value; });
+    }
+    const anchorParseBtn = document.getElementById("anchorParseBtn");
+    if (anchorParseBtn) anchorParseBtn.addEventListener("click", () => {
+      if (!aiIsConfigured()) { openAiSettingsModal(); return; }
+      parseAnchorFromDescription(selectedNode, anchorDescriptionEl ? anchorDescriptionEl.value : anchorDescriptionDraft);
     });
     const autoTraceBtn = document.getElementById("autoTraceBtn");
     if (autoTraceBtn) autoTraceBtn.addEventListener("click", () => {
@@ -11471,6 +12699,18 @@ function renderSidePanel() {
       box.style.display = open ? "none" : "block";
       adjShowBtn.textContent = open ? "Show note text ▾" : "Hide note text ▴";
     });
+    // Restore whatever the user was mid-editing before this rebuild — see
+    // the preserve comment at the top of this function.
+    if (preserve) {
+      const restoreEl = document.getElementById(preserve.id);
+      if (restoreEl) {
+        restoreEl.value = preserve.value;
+        restoreEl.focus();
+        if (preserve.selStart !== null && restoreEl.setSelectionRange) {
+          try { restoreEl.setSelectionRange(preserve.selStart, preserve.selEnd); } catch (e) { /* not all input types support selection ranges (e.g. type="date" in some browsers) — value restore alone still fixes the actual bug */ }
+        }
+      }
+    }
   } else {
     const investigatedNodes = state.nodes.filter(n => n.investigated);
     const allFlags = investigatedNodes.reduce((acc, n) => {
@@ -12911,6 +14151,7 @@ document.addEventListener("DOMContentLoaded", () => {
     closeTlBadgeMenu();
   });
   document.getElementById("downloadBtn").addEventListener("click", () => { downloadBackup(false); });
+  { const dbs = document.getElementById("downloadBtnSimple"); if (dbs) dbs.addEventListener("click", () => { downloadBackup(false); }); }
   { const gz = document.getElementById("downloadGzBtn"); if (gz) gz.addEventListener("click", () => { downloadBackup(true).catch(e => showError("Compressed backup failed: " + (e && e.message ? e.message : e))); }); }
   { const eb = document.getElementById("exportBoundaryBtn"); if (eb) eb.addEventListener("click", exportBoundaryRegistryForBreakpoint); }
   { const bb = document.getElementById("bulkConfirmInfraBtn"); if (bb) bb.addEventListener("click", bulkConfirmInfrastructure); }
