@@ -185,6 +185,9 @@
     <select id="chainFilter" style="background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-family:var(--mono); font-size:12px;">
       <option value="all">All chains</option>
     </select>
+    <select id="caseFilter" style="background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:6px 10px; font-family:var(--mono); font-size:12px;">
+      <option value="all">All cases</option>
+    </select>
     <div class="chip active" data-filter-type="all">All types</div>
     <div class="chip" data-filter-type="bridge">Bridges</div>
     <div class="chip" data-filter-type="mixer">Mixers</div>
@@ -208,12 +211,13 @@
     <table>
       <thead>
         <tr>
-          <th style="width:26%">Address</th>
-          <th style="width:10%">Chain</th>
-          <th style="width:9%">Type</th>
-          <th style="width:16%">Protocol</th>
-          <th style="width:9%">Confidence</th>
-          <th style="width:30%">Notes</th>
+          <th style="width:22%">Address</th>
+          <th style="width:9%">Chain</th>
+          <th style="width:8%">Type</th>
+          <th style="width:14%">Protocol</th>
+          <th style="width:8%">Confidence</th>
+          <th style="width:12%">Case(s)</th>
+          <th style="width:27%">Notes</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -229,6 +233,10 @@
       <div class="full">
         <label>Address</label>
         <input type="text" id="f_addr" placeholder="0x... or base58 — case preserved exactly as entered">
+        <div style="display:flex; align-items:center; gap:8px; margin-top:6px; flex-wrap:wrap;">
+          <button type="button" class="ghost" id="aiResearchBtn" style="border-color:#4f9dff; color:#7fb4ff; font-size:11.5px; padding:4px 10px;" onclick="researchWithAi()">Research with AI &rarr;</button>
+          <span id="aiResearchStatus" style="font-size:11.5px; color:var(--text-dim);"></span>
+        </div>
       </div>
       <div>
         <label>Chain</label>
@@ -261,6 +269,11 @@
           <option value="historical">historical</option>
         </select>
       </div>
+      <div>
+        <label>Case</label>
+        <select id="f_case"><option value="">(no case)</option></select>
+        <input type="text" id="f_case_other" placeholder="Type the case name..." style="display:none; margin-top:6px;">
+      </div>
       <div class="full">
         <label>Notes / source</label>
         <input type="text" id="f_notes" placeholder="Where this came from — case ref, tx hash, OFAC action date...">
@@ -280,8 +293,6 @@
       <button onclick="exportJSON()">Export JSON</button>
       <button class="ghost" onclick="document.getElementById('importFile').click()">Import JSON</button>
       <input type="file" id="importFile" accept=".json" style="display:none" onchange="importJSON(event)">
-      <button class="ghost" onclick="resetToSeed()">Reset to seed data</button>
-      <button class="ghost" onclick="normalizeChainCasing()">Fix chain name casing</button>
       <button class="ghost" onclick="removeStoredDuplicates()">Remove duplicate addresses</button>
     </div>
   </div>
@@ -327,6 +338,35 @@
   </div>
   </div>
 
+  <div id="aiCollapseHeader" onclick="toggleAiCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none; margin-top:12px;">
+    <span id="aiCollapseArrow" style="font-family:var(--mono); color:#7fb4ff;">&#9658;</span>
+    <span style="font-size:12px; color:var(--text);">AI research assist</span>
+    <span style="font-size:10.5px; color:var(--text-dim);">&mdash; bring your own Anthropic API key, not needed just to browse the registry</span>
+  </div>
+  <div id="aiCollapseBody" style="display:none;">
+  <div class="panel" style="margin-top:0; border-top:none; border-radius:0 0 6px 6px;">
+    <div class="note" style="margin-bottom:12px;">Given an address, drafts type / protocol / confidence / notes / source using a real web search — the same rigor as this registry's own seed data (cite the real source, never a guess dressed up as one). Always lands back in the Add Entry form for you to review and edit before saving; nothing is ever added automatically. Your key stays in this browser only — it's never sent anywhere but Anthropic's API, and this feature does nothing at all without one.</div>
+    <div class="form-grid">
+      <div class="full">
+        <label>Anthropic API key</label>
+        <input type="password" id="aiApiKey" placeholder="sk-ant-...">
+      </div>
+      <div>
+        <label>Model</label>
+        <select id="aiModel">
+          <option value="claude-sonnet-5">Sonnet (balanced — recommended)</option>
+          <option value="claude-opus-4-8">Opus (best judgment, costs more)</option>
+          <option value="claude-haiku-4-5-20251001">Haiku (fastest, cheapest)</option>
+        </select>
+      </div>
+    </div>
+    <div class="btn-row">
+      <button onclick="saveAiSettings()">Save</button>
+    </div>
+    <div class="note" id="aiUsageNote" style="margin-top:10px;"></div>
+  </div>
+  </div>
+
 </main>
 
 <div class="toast" id="toast"></div>
@@ -348,7 +388,7 @@ let activeFilter = 'all';
 // hostile record could otherwise inject class names / break rendering.
 const ALLOWED_TYPES = ['bridge', 'mixer', 'privacy_pool', 'router', 'exchange', 'token_contract', 'dex', 'whale', 'scam'];
 const ALLOWED_CONFIDENCE = ['confirmed', 'probable', 'historical'];
-const MAX_FIELD_LEN = { address: 128, chain: 40, protocol: 300, notes: 4000, source: 200 };
+const MAX_FIELD_LEN = { address: 128, chain: 40, protocol: 300, notes: 4000, source: 200, case: 80 };
 
 // EVM addresses (0x + 40 hex) are case-INsensitive at the protocol level —
 // checksummed mixed-case and all-lowercase are the same address. Bitcoin
@@ -356,41 +396,30 @@ const MAX_FIELD_LEN = { address: 128, chain: 40, protocol: 300, notes: 4000, sou
 // it produces a different (invalid) address. Lowercasing here only for the
 // pattern that's actually safe to lowercase.
 const EVM_ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
-// computeKey() and duplicateKey() used to be two different functions with
-// two different strictness levels — computeKey() (used almost everywhere:
-// schema migration, putEntry, getAll's entryMap build, auto-sync's
-// duplicate check) only lowercased EVM addresses, while duplicateKey()
-// (used ONLY by the manual "Remove Duplicates" button) additionally
-// stripped whitespace and invisible zero-width characters
-// (U+200B–200D, U+FEFF — common artifacts of copy-pasting an address out
-// of Messages, a PDF, or certain browsers). That gap is exactly why
-// duplicates kept reappearing a few minutes after cleanup: the manual
-// button could recognize two records as the same address and merge them,
-// but auto-sync's own entryMap.has() check — built from the SAME weaker
-// key — couldn't, so the next sync cycle treated the "duplicate" as a
-// legitimately new record and wrote it right back in, including into a
-// freshly-cleaned Dropbox file. There is now exactly one definition of
-// "the same address," used everywhere a key gets computed or compared.
 function computeKey(e) {
-  let addr = String(e.address || '').trim();
-  if (EVM_ADDR_RE.test(addr)) {
-    addr = addr.toLowerCase();
-  } else {
-    // Bitcoin/XRPL and other non-EVM addresses stay case-sensitive (case is
-    // meaningful there) — only strip harmless presentation artifacts.
-    addr = addr.replace(/[\s\u200B-\u200D\uFEFF]+/g, '');
-  }
+  const rawAddr = String(e.address || '').trim();
+  const addr = EVM_ADDR_RE.test(rawAddr) ? rawAddr.toLowerCase() : rawAddr;
   return String(e.chain || 'unknown').trim().toLowerCase() + '::' + addr;
 }
-// Kept as a named alias — several call sites read more clearly as
-// "compute the key I dedupe by" than "compute the storage key," and this
-// avoids touching every call site's wording for a purely cosmetic reason.
-// Both names now always return the identical value.
+
+// A registry key is chain + address. Duplicates are NEVER accepted.
+// EVM addresses are normalized case-insensitively by computeKey(); Bitcoin/XRPL
+// and other non-EVM addresses remain case-sensitive.
 function normalizeAddressForDedup(e) {
-  const key = computeKey(e);
-  return key.slice(key.indexOf('::') + 2);
+  let addr = String(e.address || '').trim();
+
+  // EVM: checksum/lowercase variants are the same address.
+  if (EVM_ADDR_RE.test(addr)) return addr.toLowerCase();
+
+  // For all other address formats, remove harmless presentation differences
+  // only. Do NOT lowercase Base58/XRPL addresses because case is meaningful.
+  // This catches whitespace and common copy/paste formatting variants.
+  return addr.replace(/[\\s\\u200B-\\u200D\\uFEFF]+/g, '');
 }
-function duplicateKey(e) { return computeKey(e); }
+
+function duplicateKey(e) {
+  return String(e.chain || 'unknown').trim().toLowerCase() + '::' + normalizeAddressForDedup(e);
+}
 
 // Validates one raw (untrusted) record. Returns { ok:true, entry } with a
 // clean, whitelisted-shape object, or { ok:false, reason }. Nothing from the
@@ -412,7 +441,16 @@ function validateEntry(raw) {
   const protocol = String(raw.protocol || '').trim().slice(0, MAX_FIELD_LEN.protocol);
   const notes = String(raw.notes || '').trim().slice(0, MAX_FIELD_LEN.notes);
   const source = String(raw.source || '').trim().slice(0, MAX_FIELD_LEN.source);
-  return { ok: true, entry: { address, chain, type, confidence, protocol, notes, source } };
+  // cases: optional, array of case names this address is linked to. An
+  // address can legitimately belong to more than one investigation (that's
+  // the whole point — the same infrastructure showing up across cases is
+  // the signal worth surfacing), so this is a list, not a single field.
+  // Missing/malformed input degrades to an empty list rather than failing
+  // validation — a record with no case tag is still a valid registry entry,
+  // same as before this field existed.
+  const casesRaw = Array.isArray(raw.cases) ? raw.cases : (raw.cases ? [raw.cases] : []);
+  const cases = [...new Set(casesRaw.map(c => String(c || '').trim().slice(0, MAX_FIELD_LEN.case)).filter(Boolean))];
+  return { ok: true, entry: { address, chain, type, confidence, protocol, notes, source, cases } };
 }
 
 const SEED = [
@@ -775,6 +813,8 @@ async function init(){
   render();
   toggleTableCollapse(localStorage.getItem('bp_table_collapsed') === '1');
   toggleDropboxCollapse(localStorage.getItem('bp_dropbox_collapsed') !== '0'); // default collapsed - only expand if explicitly reopened before
+  toggleAiCollapse(localStorage.getItem('bp_ai_collapsed') !== '0'); // same default-collapsed behavior
+  loadAiSettings();
   tryRestoreMasterHandle();
   await handleDropboxRedirect(); // no-op unless we just came back from Dropbox's sign-in page
   await updateDropboxUI();
@@ -793,9 +833,11 @@ function typeLabel(t){
 function getFilteredList(){
   const q = document.getElementById('search').value.trim().toLowerCase();
   const chainSelect = document.getElementById('chainFilter');
+  const caseSelect = document.getElementById('caseFilter');
   let list = entries.slice().sort((a,b) => a.chain.localeCompare(b.chain));
   if(activeFilter !== 'all') list = list.filter(e => e.type === activeFilter);
   if(chainSelect.value !== 'all') list = list.filter(e => e.chain === chainSelect.value);
+  if(caseSelect && caseSelect.value !== 'all') list = list.filter(e => (e.cases || []).includes(caseSelect.value));
   if(q) list = list.filter(e =>
     e.address.toLowerCase().includes(q) ||
     (e.protocol||'').toLowerCase().includes(q) ||
@@ -821,6 +863,162 @@ function toggleDropboxCollapse(forceState) {
   body.style.display = isCollapsed ? 'none' : '';
   arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
   localStorage.setItem('bp_dropbox_collapsed', isCollapsed ? '1' : '0');
+}
+
+function toggleAiCollapse(forceState) {
+  const body = document.getElementById('aiCollapseBody');
+  const arrow = document.getElementById('aiCollapseArrow');
+  const isCollapsed = forceState !== undefined ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+  localStorage.setItem('bp_ai_collapsed', isCollapsed ? '1' : '0');
+}
+
+// ---------- AI research assist ----------
+// $/million tokens — update if Anthropic's published rates change. Shown as
+// an estimate, not a guaranteed final cost. Web search itself carries its
+// own small per-query cost on top of these token rates.
+const AI_MODEL_PRICING = {
+  'claude-sonnet-5': { input: 2.00, output: 10.00 },
+  'claude-opus-4-8': { input: 5.00, output: 25.00 },
+  'claude-haiku-4-5-20251001': { input: 1.00, output: 5.00 },
+};
+const AI_SETTINGS_KEY = 'bp_ai_settings';
+let aiSettingsCache = { apiKey: '', model: 'claude-sonnet-5', totalInputTokens: 0, totalOutputTokens: 0, totalSearches: 0 };
+function loadAiSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AI_SETTINGS_KEY) || 'null');
+    if (saved && typeof saved === 'object') aiSettingsCache = Object.assign({ apiKey: '', model: 'claude-sonnet-5', totalInputTokens: 0, totalOutputTokens: 0, totalSearches: 0 }, saved);
+  } catch { /* keep default */ }
+  document.getElementById('aiApiKey').value = aiSettingsCache.apiKey || '';
+  document.getElementById('aiModel').value = aiSettingsCache.model || 'claude-sonnet-5';
+  renderAiUsageNote();
+}
+function saveAiSettings() {
+  aiSettingsCache.apiKey = document.getElementById('aiApiKey').value.trim();
+  aiSettingsCache.model = document.getElementById('aiModel').value;
+  localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(aiSettingsCache));
+  showToast('AI settings saved — key stays in this browser only');
+  renderAiUsageNote();
+}
+function aiIsConfigured() { return !!(aiSettingsCache.apiKey && aiSettingsCache.apiKey.trim()); }
+function renderAiUsageNote() {
+  const el = document.getElementById('aiUsageNote');
+  if (!el) return;
+  const pricing = AI_MODEL_PRICING[aiSettingsCache.model] || AI_MODEL_PRICING['claude-sonnet-5'];
+  const cost = (aiSettingsCache.totalInputTokens / 1e6) * pricing.input + (aiSettingsCache.totalOutputTokens / 1e6) * pricing.output;
+  el.textContent = aiIsConfigured()
+    ? `This session so far: ${aiSettingsCache.totalSearches || 0} lookup(s), ~$${cost.toFixed(3)} in token cost (excludes web search's own small per-query fee — check Anthropic's current pricing for that).`
+    : 'No key saved yet — "Research with AI" won\u2019t do anything until one is.';
+}
+
+// Same rigor as this registry's own seed data: real sources, "probable" vs
+// "confirmed" used honestly, and an explicit "couldn't identify" answer is
+// a correct, expected outcome — never a forced guess for an address that
+// doesn't have public attribution.
+const AI_RESEARCH_SYSTEM_PROMPT = `You are a blockchain forensics research assistant helping populate a registry of known custody-break addresses (exchanges, mixers, bridges, contracts, notable wallets). Given one blockchain address (and possibly its chain), search the web for what is publicly known about it, then produce a registry entry.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON object as your final message. No markdown, no preamble, no explanation outside the JSON.
+2. chain: the blockchain this address is on, lowercase (e.g. "ethereum", "bitcoin", "flare"). If not given and not determinable, use null.
+3. type: one of exactly these values: "bridge", "mixer", "privacy_pool", "router", "exchange", "token_contract", "dex", "whale", "scam". Pick the single best fit.
+4. protocol: the specific name (e.g. "Tornado Cash", "Bybit Hot Wallet 1", "Uniswap V2: Router 2"). Null if genuinely unidentifiable.
+5. confidence: "confirmed" only if a primary source (the project's own docs, an official exchange statement, a government action, a verified contract on a block explorer) directly names this address. "probable" if a secondary/community source (a rich-list tag, an analytics site) labels it without primary confirmation. "historical" for a designation that has since changed (e.g. delisted sanctions).
+6. notes: 1-3 sentences, written the way this registry's existing entries are — state what the address is, note anything a trace investigator should know (e.g. "shared infrastructure, do not treat its other counterparties as connected to this case"), and be explicit when a source is community-tagged rather than official.
+7. source: the actual URL(s) or named source you found this from. Never fabricate a source — if you cannot find one, say so in source and drop confidence to "probable" at most.
+8. If you find genuinely nothing public about this address, do not force an answer: set type to "router" (the closest to "unclassified"), confidence to "probable", and say plainly in notes that no public attribution was found — this is a correct, honest, useful result, not a failure.
+9. Never invent a designation, date, or source you did not actually find.
+
+Output schema (exact keys):
+{
+  "chain": string | null,
+  "type": "bridge" | "mixer" | "privacy_pool" | "router" | "exchange" | "token_contract" | "dex" | "whale" | "scam",
+  "protocol": string | null,
+  "confidence": "confirmed" | "probable" | "historical",
+  "notes": string,
+  "source": string
+}`;
+
+async function researchWithAi() {
+  const addr = document.getElementById('f_addr').value.trim();
+  const statusEl = document.getElementById('aiResearchStatus');
+  const btn = document.getElementById('aiResearchBtn');
+  if (!addr) { showToast('Enter an address first'); return; }
+  if (!aiIsConfigured()) { toggleAiCollapse(false); showToast('Add your Anthropic API key below first'); return; }
+
+  btn.disabled = true;
+  statusEl.textContent = '🤖 Researching…';
+  statusEl.style.color = '#7fb4ff';
+
+  try {
+    const chainHint = (() => {
+      const v = document.getElementById('f_chain').value;
+      return (v && v !== '__other__') ? v : (document.getElementById('f_chain_other').value.trim() || null);
+    })();
+    const userContent = JSON.stringify({ address: addr, chain_hint: chainHint });
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': aiSettingsCache.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: aiSettingsCache.model,
+        max_tokens: 1200,
+        system: AI_RESEARCH_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err.error && err.error.message) || `API error ${resp.status}`);
+    }
+    const data = await resp.json();
+
+    // Server-executed tool: Anthropic runs the actual search on its own
+    // side and returns everything — search results and the final answer —
+    // in this one response. No client-side tool loop needed. The final
+    // text block (after any web_search_tool_result blocks) is the answer.
+    const textBlocks = (data.content || []).filter(b => b.type === 'text');
+    const finalText = textBlocks.length ? textBlocks[textBlocks.length - 1].text : '';
+    let parsed;
+    try { parsed = JSON.parse(finalText); }
+    catch { throw new Error('Model did not return valid JSON — try again, or fill the form in manually.'); }
+
+    const usage = data.usage || {};
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + (usage.input_tokens || 0);
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + (usage.output_tokens || 0);
+    aiSettingsCache.totalSearches = (aiSettingsCache.totalSearches || 0) + 1;
+    localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(aiSettingsCache));
+    renderAiUsageNote();
+
+    // Populate the form — review-and-edit, never auto-saved. If the model
+    // named a chain not currently in the dropdown, fall back to its
+    // "Other…" free-text path rather than silently dropping the value.
+    if (parsed.chain) {
+      const chainSel = document.getElementById('f_chain');
+      const hasOption = [...chainSel.options].some(o => o.value === parsed.chain);
+      if (hasOption) { chainSel.value = parsed.chain; document.getElementById('f_chain_other').style.display = 'none'; }
+      else { chainSel.value = '__other__'; document.getElementById('f_chain_other').style.display = 'block'; document.getElementById('f_chain_other').value = parsed.chain; }
+    }
+    if (ALLOWED_TYPES.includes(parsed.type)) document.getElementById('f_type').value = parsed.type;
+    if (parsed.protocol) document.getElementById('f_protocol').value = parsed.protocol;
+    if (ALLOWED_CONFIDENCE.includes(parsed.confidence)) document.getElementById('f_confidence').value = parsed.confidence;
+    const notesParts = [parsed.notes, parsed.source ? `Source: ${parsed.source}` : null].filter(Boolean);
+    if (notesParts.length) document.getElementById('f_notes').value = notesParts.join(' ');
+
+    statusEl.textContent = '✓ Drafted below — review before saving';
+    statusEl.style.color = '#5fd98a';
+  } catch (err) {
+    statusEl.textContent = 'Research failed: ' + err.message;
+    statusEl.style.color = '#e08a7a';
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // A starter set of common chain names, so the datalist below has good
@@ -853,6 +1051,24 @@ function render(){
   addChainSelect.innerHTML = addChainOptions.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('') + '<option value="__other__">Other\u2026</option>';
   if (addChainOptions.includes(prevAddChainValue) || prevAddChainValue === '__other__') addChainSelect.value = prevAddChainValue;
 
+  // Case filter + Add-entry case dropdown: same pick-or-add-new pattern as
+  // chain, but no canonical starter list — case names are yours, not a
+  // fixed vocabulary. Built from every case name that appears anywhere
+  // across entries.cases (each entry can belong to more than one case —
+  // an address reappearing under a second case is exactly the cross-case
+  // signal the registry is meant to surface later, not something a single
+  // scalar field could represent).
+  const allCases = [...new Set(entries.flatMap(e => e.cases || []))].sort();
+  const caseFilterSelect = document.getElementById('caseFilter');
+  const prevCaseFilterValue = caseFilterSelect.value;
+  caseFilterSelect.innerHTML = '<option value="all">All cases</option>' + allCases.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
+  caseFilterSelect.value = (allCases.includes(prevCaseFilterValue) || prevCaseFilterValue === 'all') ? prevCaseFilterValue : 'all';
+
+  const addCaseSelect = document.getElementById('f_case');
+  const prevAddCaseValue = addCaseSelect.value;
+  addCaseSelect.innerHTML = '<option value="">(no case)</option>' + allCases.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('') + '<option value="__other__">Add new case\u2026</option>';
+  if (allCases.includes(prevAddCaseValue) || prevAddCaseValue === '__other__' || prevAddCaseValue === '') addCaseSelect.value = prevAddCaseValue;
+
   const list = getFilteredList();
   const q = document.getElementById('search').value.trim();
   const filteredCountEl = document.getElementById('filteredCount');
@@ -875,6 +1091,7 @@ function render(){
       <td><span class="tag ${safeType}">${typeLabel(safeType)}</span></td>
       <td>${escapeHTML(e.protocol||'')}</td>
       <td><span class="conf ${safeConf}">${escapeHTML(safeConf)}</span></td>
+      <td>${(e.cases||[]).length ? (e.cases||[]).map(c => `<span class="tag" style="background:var(--panel-2); border:1px solid var(--line); margin:1px;">${escapeHTML(c)}</span>`).join(' ') : '<span style="color:var(--text-dim);">—</span>'}</td>
       <td>${escapeHTML(e.notes||'')}${e.history && e.history.length ? `<div class="note" style="margin-top:4px;">↺ edited ${e.history.length}× — <span class="src-link" style="cursor:pointer;" onclick="showHistory('${escapeHTML(e._key||computeKey(e))}')">view history</span></div>` : ''}</td>
     `;
     tbody.appendChild(tr);
@@ -985,17 +1202,37 @@ function findCloseChainMatch(typedChain) {
   return (best && bestDist <= 2) ? best : null;
 }
 
+// Genuine record update — every other write path in this file (putEntry,
+// putEntries) is deliberately insert-only and rejects on an existing key,
+// which is right for imports/adds but wrong here: merging a new case into
+// an address that's already registered needs an actual overwrite. Mirrors
+// the direct store.put() transaction removeStoredDuplicates() already uses
+// for the same reason (rewriting winners under their canonical key).
+function updateEntry(entry){
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(entry);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('Update aborted'));
+  });
+}
+
 async function addEntry(){
   const chainSelectVal = document.getElementById('f_chain').value;
   const isOther = chainSelectVal === '__other__';
   const rawChain = isOther ? document.getElementById('f_chain_other').value.trim() : chainSelectVal;
+  const caseSelectVal = document.getElementById('f_case').value;
+  const isCaseOther = caseSelectVal === '__other__';
+  const rawCase = isCaseOther ? document.getElementById('f_case_other').value.trim() : caseSelectVal;
   const raw = {
     address: document.getElementById('f_addr').value.trim(),
     chain: rawChain,
     type: document.getElementById('f_type').value,
     protocol: document.getElementById('f_protocol').value.trim(),
     confidence: document.getElementById('f_confidence').value,
-    notes: document.getElementById('f_notes').value.trim()
+    notes: document.getElementById('f_notes').value.trim(),
+    cases: rawCase ? [rawCase] : []
   };
   const v = validateEntry(raw);
   if (!v.ok) { showToast(`Not saved — ${v.reason}`); return; }
@@ -1012,9 +1249,31 @@ async function addEntry(){
 
   const key = duplicateKey(v.entry);
 
-  // Never accept a duplicate from the Add Entry form.
-  if (entryMap.has(key)) {
-    showToast('Not saved — duplicate address already exists on this chain');
+  // An address already in the registry under a DIFFERENT case is not a
+  // duplicate to reject — it's exactly the cross-case reuse signal this
+  // field exists to capture (the same infrastructure showing up in more
+  // than one investigation). Merge the new case into the existing record's
+  // case list instead of silently dropping it or forcing a manual re-edit.
+  // A genuine duplicate — same address, no new case to add — is still
+  // rejected exactly as before.
+  const existing = entryMap.get(key);
+  if (existing) {
+    const existingCases = existing.cases || [];
+    const newCases = (v.entry.cases || []).filter(c => !existingCases.includes(c));
+    if (!newCases.length) {
+      showToast('Not saved — duplicate address already exists on this chain');
+      return;
+    }
+    const merged = { ...existing, cases: [...existingCases, ...newCases] };
+    await updateEntry(merged);
+    entries = await getAll();
+    ['f_addr','f_protocol','f_notes'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f_chain_other').value = '';
+    document.getElementById('f_chain_other').style.display = 'none';
+    document.getElementById('f_case_other').value = '';
+    document.getElementById('f_case_other').style.display = 'none';
+    render();
+    showToast(`Already logged — added case "${newCases.join(', ')}" to the existing entry`);
     return;
   }
 
@@ -1024,6 +1283,8 @@ async function addEntry(){
   ['f_addr','f_protocol','f_notes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f_chain_other').value = '';
   document.getElementById('f_chain_other').style.display = 'none';
+  document.getElementById('f_case_other').value = '';
+  document.getElementById('f_case_other').style.display = 'none';
   render();
   showToast('Entry added');
 }
@@ -1505,15 +1766,33 @@ async function autoSyncFromDropboxIfChanged() {
 
     const toWrite = [];
     const seen = new Set();
+    // REAL BUG FIXED 2026-08-10: this used to check entryMap.has(computeKey(...))
+    // — the same weaker key removeStoredDuplicates() exists specifically to
+    // work around (computeKey only lowercases EVM addresses; it doesn't
+    // strip whitespace/zero-width characters or catch other harmless
+    // presentation variants the way duplicateKey does). Every OTHER
+    // duplicate check in this file (Add Entry, manual import/Dropbox load,
+    // the cleanup tool itself) already uses duplicateKey — this silent,
+    // automatic, runs-on-every-page-load path was the one place that
+    // didn't. Confirmed real case: clean up duplicates, save a clean
+    // master to Dropbox, and this exact mismatch would silently write a
+    // "new" near-duplicate back in on a later auto-sync the moment any
+    // stored address varied even slightly in casing/whitespace from what
+    // was already local — which is normal and expected given addresses get
+    // copy-pasted from explorers, Wallet-Tracer exports, and manual entry
+    // across sessions. The actual storage key (_key) below is still
+    // computeKey-based, matching every other record in the DB — only the
+    // "is this already present" check changes.
+    const existingDupeKeys = new Set(entries.map(e => duplicateKey(e)));
     for (const raw of rawList) {
       const v = validateEntry(raw);
       if (!v.ok) continue;
-      const key = computeKey(v.entry);
+      const dupeKey = duplicateKey(v.entry);
       // Auto-sync is also strict: existing records and duplicates inside the
       // Dropbox file are skipped, never updated or overwritten.
-      if (entryMap.has(key) || seen.has(key)) continue;
-      seen.add(key);
-      toWrite.push({ ...v.entry, _key: key });
+      if (existingDupeKeys.has(dupeKey) || seen.has(dupeKey)) continue;
+      seen.add(dupeKey);
+      toWrite.push({ ...v.entry, _key: computeKey(v.entry) });
     }
     if (!toWrite.length) {
       if (exportedAt) localStorage.setItem('bp_dropbox_last_auto_sync', exportedAt);
@@ -1582,15 +1861,6 @@ function copyDropboxLink() {
   if (!link) return;
   navigator.clipboard.writeText(link);
   showToast('Link copied');
-}
-
-async function resetToSeed(){
-  if(!confirm('This clears all entries and reloads the seed set. Export first if you want to keep current data. Continue?')) return;
-  await clearStore();
-  for(const e of SEED) await putEntry(e);
-  entries = await getAll();
-  render();
-  showToast('Reset to seed data');
 }
 
 // One-time cleanup for entries already stored before validateEntry() started
@@ -1692,34 +1962,6 @@ async function removeStoredDuplicates(){
   showToast(`Removed ${duplicateCount.toLocaleString()} duplicate address record(s)`);
 }
 
-async function normalizeChainCasing(){
-  const toFix = entries.filter(e => e.chain !== e.chain.toLowerCase());
-  if (!toFix.length) { showToast('All chain names are already lowercase \u2014 nothing to fix.'); return; }
-
-  let fixedCount = 0, skippedCount = 0;
-  const tx = db.transaction(STORE, 'readwrite');
-  const store = tx.objectStore(STORE);
-  for (const e of toFix) {
-    const oldKey = e._key || computeKey(e);
-    const normalized = { ...e, chain: e.chain.toLowerCase() };
-    const newKey = computeKey(normalized);
-    if (entryMap.has(newKey) && newKey !== oldKey) {
-      // A correctly-cased entry for this same chain+address already exists —
-      // don't silently overwrite it; leave this one for manual review instead.
-      skippedCount++;
-      continue;
-    }
-    normalized._key = newKey;
-    store.delete(oldKey);
-    store.put(normalized);
-    fixedCount++;
-  }
-  await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); });
-  entries = await getAll();
-  render();
-  showToast(`Fixed casing on ${fixedCount} entr${fixedCount === 1 ? 'y' : 'ies'}${skippedCount ? `, skipped ${skippedCount} (would collide with an existing correctly-cased entry \u2014 review manually)` : ''}.`);
-}
-
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -1730,8 +1972,12 @@ function showToast(msg){
 
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('chainFilter').addEventListener('change', render);
+document.getElementById('caseFilter').addEventListener('change', render);
 document.getElementById('f_chain').addEventListener('change', (e) => {
   document.getElementById('f_chain_other').style.display = e.target.value === '__other__' ? 'block' : 'none';
+});
+document.getElementById('f_case').addEventListener('change', (e) => {
+  document.getElementById('f_case_other').style.display = e.target.value === '__other__' ? 'block' : 'none';
 });
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => {
