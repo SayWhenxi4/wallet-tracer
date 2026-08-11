@@ -49,12 +49,39 @@
   .toolbar{
     display:flex; flex-wrap:wrap; gap:10px; margin-bottom:18px; align-items:center;
   }
-  input[type=text], select{
+  input[type=text], input[type=password], select{
     background:var(--panel); border:1px solid var(--line); color:var(--text);
     font-family:var(--mono); font-size:13px; padding:9px 12px; border-radius:4px;
     outline:none;
   }
-  input[type=text]:focus, select:focus{ border-color:var(--amber-dim); }
+  input[type=text]:focus, input[type=password]:focus, select:focus{ border-color:var(--amber-dim); }
+  /* Collapse-tray arrows — shared, high-contrast treatment for every
+     expandable section (table, master file, Dropbox, AI, extract). Plain
+     inline unicode glyphs at body text size were easy to miss entirely;
+     this gives every one of them a consistent button-like chip so the
+     "this row expands/collapses" affordance is obvious at a glance, not
+     just discoverable by accident. */
+  .collapse-arrow {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:22px; height:22px; border-radius:5px; flex-shrink:0;
+    background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.12);
+    font-family:var(--mono); font-size:14px; font-weight:bold; line-height:1;
+  }
+  /* Applied to a field the agent is actively writing into — a clear,
+     visible cue on the exact field being touched, not just a status line
+     elsewhere on the page that's easy to miss while looking at the form. */
+  @keyframes aiFieldGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(79,157,255,0.35); border-color:#2f6fbf; }
+    50% { box-shadow: 0 0 10px 3px rgba(79,157,255,0.55); border-color:#7fb4ff; }
+  }
+  .ai-glow { animation: aiFieldGlow 1.2s ease-in-out infinite; }
+  textarea{
+    background:var(--panel); border:1px solid var(--line); color:var(--text);
+    font-family:var(--mono); font-size:13px; padding:9px 12px; border-radius:4px;
+    outline:none; width:100%; box-sizing:border-box; resize:vertical;
+    min-height:64px; line-height:1.4;
+  }
+  textarea:focus{ border-color:var(--amber-dim); }
   #search{ flex:1; min-width:200px; }
   .chip{
     padding:7px 12px; border:1px solid var(--line); border-radius:999px;
@@ -203,7 +230,7 @@
   <div class="note" id="filteredCount" style="margin:-6px 0 10px; font-size:11px;"></div>
 
   <div id="tableCollapseHeader" class="gold-ring" onclick="toggleTableCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border-radius:6px 6px 0 0; user-select:none;">
-    <span id="tableCollapseArrow" style="font-family:var(--mono); color:var(--brass);">&#9660;</span>
+    <span id="tableCollapseArrow" class="collapse-arrow" style="color:var(--brass);">&#9660;</span>
     <span style="font-size:12px; color:var(--text-2);">Registry entries</span>
     <span id="tableCollapseCount" style="font-size:11px; color:var(--text-dim); margin-left:auto;"></span>
   </div>
@@ -276,13 +303,43 @@
       </div>
       <div class="full">
         <label>Notes / source</label>
-        <input type="text" id="f_notes" placeholder="Where this came from — case ref, tx hash, OFAC action date...">
+        <textarea id="f_notes" placeholder="Where this came from — case ref, tx hash, OFAC action date..." rows="3"></textarea>
       </div>
     </div>
     <div class="btn-row">
       <button onclick="addEntry()">Add to registry</button>
     </div>
   </div>
+  </div>
+  </div>
+
+  <div id="extractCollapseHeader" onclick="toggleExtractCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none;">
+    <span id="extractCollapseArrow" class="collapse-arrow" style="color:#7fb4ff;">&#9658;</span>
+    <span style="font-size:12px; color:var(--text);">Extract from an article</span>
+    <span style="font-size:10.5px; color:var(--text-dim);">&mdash; paste a hack writeup, draft a whole batch of entries at once</span>
+  </div>
+  <div id="extractCollapseBody" style="display:none;">
+  <div class="panel" style="margin-top:0; border-top:none; border-radius:0 0 6px 6px;">
+    <div class="note" style="margin-bottom:12px;">Paste a writeup of a hack or incident — a post-mortem, a thread, a news article — and the agent finds every address mentioned, works out each one's role from context (attacker wallet, consolidation hub, victim, exchange deposit...), and drafts a full batch of entries. Nothing is written until you review and confirm each one in the preview that follows.</div>
+    <div class="form-grid">
+      <div class="full">
+        <label>Article / writeup text</label>
+        <textarea id="f_extract_text" placeholder="Paste the full writeup here — addresses, transaction hashes, and surrounding context all help the agent get the roles right..." rows="8"></textarea>
+      </div>
+      <div>
+        <label>Chain (if not obvious from the text)</label>
+        <select id="f_extract_chain"><option value="">(let the agent determine it)</option></select>
+      </div>
+      <div>
+        <label>Case to tag these under</label>
+        <select id="f_extract_case"><option value="">(no case)</option></select>
+        <input type="text" id="f_extract_case_other" placeholder="Type the case name..." style="display:none; margin-top:6px;">
+      </div>
+    </div>
+    <div class="btn-row">
+      <button type="button" style="border-color:#4f9dff; color:#7fb4ff;" onclick="extractEntitiesFromText()" id="aiExtractBtn">Extract &amp; draft entries &rarr;</button>
+    </div>
+    <div class="note" id="aiExtractStatus" style="margin-top:8px;"></div>
   </div>
   </div>
 
@@ -297,8 +354,13 @@
     </div>
   </div>
 
-  <div class="panel">
-    <h3><span class="dot"></span>Master file (portable drive)</h3>
+  <div id="masterCollapseHeader" onclick="toggleMasterCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none;">
+    <span id="masterCollapseArrow" class="collapse-arrow" style="color:var(--amber);">&#9658;</span>
+    <span style="font-size:12px; color:var(--text);">Master file (portable drive)</span>
+    <span style="font-size:10.5px; color:var(--text-dim);">&mdash; admin feature, not needed just to browse the registry</span>
+  </div>
+  <div id="masterCollapseBody" style="display:none;">
+  <div class="panel" style="margin-top:0; border-top:none; border-radius:0 0 6px 6px;">
     <div class="note" style="margin-bottom:12px;">Connects this page directly to ONE file on disk — on your portable SSD, a folder, wherever — so Save/Load always read and write that same file instead of piling up new downloads. Plain, unencrypted JSON. Chrome/Edge on desktop only (the underlying browser API isn't in Firefox or Safari).</div>
     <div class="note" id="masterFileStatus" style="margin-bottom:12px; color:var(--amber);">Checking…</div>
     <div class="btn-row">
@@ -312,9 +374,10 @@
       <button class="ghost" onclick="forgetMasterFile()">Forget connection</button>
     </div>
   </div>
+  </div>
 
-  <div id="dropboxCollapseHeader" onclick="toggleDropboxCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none; margin-top:22px;">
-    <span id="dropboxCollapseArrow" style="font-family:var(--mono); color:var(--amber);">&#9658;</span>
+  <div id="dropboxCollapseHeader" onclick="toggleDropboxCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none; margin-top:12px;">
+    <span id="dropboxCollapseArrow" class="collapse-arrow" style="color:var(--amber);">&#9658;</span>
     <span style="font-size:12px; color:var(--text);">Cloud sync (Dropbox)</span>
     <span style="font-size:10.5px; color:var(--text-dim);">&mdash; admin feature, not needed just to browse the registry</span>
   </div>
@@ -339,7 +402,7 @@
   </div>
 
   <div id="aiCollapseHeader" onclick="toggleAiCollapse()" style="display:flex; align-items:center; gap:8px; cursor:pointer; padding:8px 12px; background:var(--panel-2); border:1px solid var(--line); border-radius:6px 6px 0 0; user-select:none; margin-top:12px;">
-    <span id="aiCollapseArrow" style="font-family:var(--mono); color:#7fb4ff;">&#9658;</span>
+    <span id="aiCollapseArrow" class="collapse-arrow" style="color:#7fb4ff;">&#9658;</span>
     <span style="font-size:12px; color:var(--text);">AI research assist</span>
     <span style="font-size:10.5px; color:var(--text-dim);">&mdash; bring your own Anthropic API key, not needed just to browse the registry</span>
   </div>
@@ -814,6 +877,8 @@ async function init(){
   toggleTableCollapse(localStorage.getItem('bp_table_collapsed') === '1');
   toggleDropboxCollapse(localStorage.getItem('bp_dropbox_collapsed') !== '0'); // default collapsed - only expand if explicitly reopened before
   toggleAiCollapse(localStorage.getItem('bp_ai_collapsed') !== '0'); // same default-collapsed behavior
+  toggleMasterCollapse(localStorage.getItem('bp_master_collapsed') !== '0'); // same — used less often than the everyday panels
+  toggleExtractCollapse(localStorage.getItem('bp_extract_collapsed') !== '0'); // same
   loadAiSettings();
   tryRestoreMasterHandle();
   await handleDropboxRedirect(); // no-op unless we just came back from Dropbox's sign-in page
@@ -872,6 +937,24 @@ function toggleAiCollapse(forceState) {
   body.style.display = isCollapsed ? 'none' : '';
   arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
   localStorage.setItem('bp_ai_collapsed', isCollapsed ? '1' : '0');
+}
+
+function toggleMasterCollapse(forceState) {
+  const body = document.getElementById('masterCollapseBody');
+  const arrow = document.getElementById('masterCollapseArrow');
+  const isCollapsed = forceState !== undefined ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+  localStorage.setItem('bp_master_collapsed', isCollapsed ? '1' : '0');
+}
+
+function toggleExtractCollapse(forceState) {
+  const body = document.getElementById('extractCollapseBody');
+  const arrow = document.getElementById('extractCollapseArrow');
+  const isCollapsed = forceState !== undefined ? forceState : body.style.display !== 'none';
+  body.style.display = isCollapsed ? 'none' : '';
+  arrow.innerHTML = isCollapsed ? '&#9658;' : '&#9660;';
+  localStorage.setItem('bp_extract_collapsed', isCollapsed ? '1' : '0');
 }
 
 // ---------- AI research assist ----------
@@ -949,6 +1032,7 @@ async function researchWithAi() {
   btn.disabled = true;
   statusEl.textContent = '🤖 Researching…';
   statusEl.style.color = '#7fb4ff';
+  document.getElementById('f_notes').classList.add('ai-glow');
 
   try {
     const chainHint = (() => {
@@ -1018,7 +1102,214 @@ async function researchWithAi() {
     statusEl.style.color = '#e08a7a';
   } finally {
     btn.disabled = false;
+    document.getElementById('f_notes').classList.remove('ai-glow');
   }
+}
+
+// ---------- AI extraction from pasted text (batch) ----------
+// Same BYOK settings and web_search tool as researchWithAi() above, but for
+// the "I just read a hack writeup and it names ten addresses" case instead
+// of "I have one address, tell me what it is." Output is a full batch of
+// draft entries, and — unlike the single-address flow, which lands
+// straight in the Add Entry form — this always goes through an editable
+// preview modal first. A batch drafted from a chaotic incident writeup is
+// exactly the situation most likely to need a correction before it's
+// trusted into the registry, and there's currently no "edit an existing
+// entry" UI in this app at all — getting it right HERE, before it's
+// written, is the only real chance to fix a wrong field.
+const AI_EXTRACT_SYSTEM_PROMPT = `You are a blockchain forensics research assistant. You will be given the text of an article, thread, or post-mortem about a hack or security incident. Find every blockchain address mentioned in the text (and, if it helps identify addresses not explicitly labeled, use web search to corroborate — e.g. confirming a consolidation wallet's later deposits into a known exchange). For EACH distinct address, produce a registry entry.
+
+Rules you must follow exactly:
+1. Respond with ONLY a single JSON array as your final message. No markdown, no preamble, no explanation outside the array. If you find no addresses at all, respond with an empty array: []
+2. Extract at most 30 addresses. If more appear in the text, include the 30 most significant to the incident (attacker/consolidation wallets over minor counterparties) and omit the rest — do not fail or truncate mid-object.
+3. For each address:
+   - address: exactly as it appears in the text, case preserved.
+   - chain: lowercase (e.g. "ethereum", "bitcoin"). Infer from context/format if not explicit. Null if genuinely undeterminable.
+   - type: one of exactly: "bridge", "mixer", "privacy_pool", "router", "exchange", "token_contract", "dex", "whale", "scam". For an attacker/hacker wallet with no more specific classification, use "scam".
+   - protocol: a short label for what this address IS or is called in the text (e.g. "Attacker wallet #1", "Consolidation hub", "Tornado Cash", "Binance deposit address"). Null if nothing better than "unknown" applies.
+   - confidence: "confirmed" only if a primary source (the article's own on-chain evidence, an official statement, a verified explorer label) directly supports this address's role. "probable" if it's inferred from context/pattern (e.g. "received funds from the exploit tx") without independent confirmation. "historical" rarely applies here.
+   - notes: 1-3 sentences describing this address's SPECIFIC ROLE in this incident, in the same style as the rest of this registry (state what it is, what it did in the incident, and flag anything an investigator should know — e.g. "do not treat its other counterparties as connected to this case" for shared/exchange infrastructure). This is the most important field — the role/context from the article belongs here since the schema has no separate field for it.
+   - source: the article/text itself is always a valid source — say so (e.g. "Provided incident writeup") — plus any additional URL found via search.
+4. Never invent an address, role, or detail not actually supported by the text or a genuine search result.
+5. If the SAME address appears multiple times in the text under different apparent roles, output it once with the most complete/accurate role description, not multiple times.
+
+Output schema — a JSON array of objects, each with exactly these keys:
+[{ "address": string, "chain": string | null, "type": "...", "protocol": string | null, "confidence": "...", "notes": string, "source": string }]`;
+
+async function extractEntitiesFromText() {
+  const text = document.getElementById('f_extract_text').value.trim();
+  const statusEl = document.getElementById('aiExtractStatus');
+  const btn = document.getElementById('aiExtractBtn');
+  if (!text) { showToast('Paste some article text first'); return; }
+  if (!aiIsConfigured()) { toggleAiCollapse(false); showToast('Add your Anthropic API key first'); return; }
+
+  const chainHintEl = document.getElementById('f_extract_chain');
+  const chainHint = chainHintEl.value || null;
+  const caseSelVal = document.getElementById('f_extract_case').value;
+  const caseTag = (caseSelVal === '__other__') ? document.getElementById('f_extract_case_other').value.trim() : caseSelVal;
+
+  btn.disabled = true;
+  statusEl.textContent = '🤖 Reading the text and researching addresses…';
+  statusEl.style.color = '#7fb4ff';
+
+  try {
+    const userContent = JSON.stringify({ chain_hint: chainHint, text });
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': aiSettingsCache.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: aiSettingsCache.model,
+        max_tokens: 8000,
+        system: AI_EXTRACT_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent }],
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err.error && err.error.message) || `API error ${resp.status}`);
+    }
+    const data = await resp.json();
+    const textBlocks = (data.content || []).filter(b => b.type === 'text');
+    const finalText = textBlocks.length ? textBlocks[textBlocks.length - 1].text : '';
+    let candidates;
+    try { candidates = JSON.parse(finalText); }
+    catch { throw new Error('Model did not return valid JSON — try again with a shorter excerpt.'); }
+    if (!Array.isArray(candidates)) throw new Error('Model response was not a list of entries.');
+
+    const usage = data.usage || {};
+    aiSettingsCache.totalInputTokens = (aiSettingsCache.totalInputTokens || 0) + (usage.input_tokens || 0);
+    aiSettingsCache.totalOutputTokens = (aiSettingsCache.totalOutputTokens || 0) + (usage.output_tokens || 0);
+    aiSettingsCache.totalSearches = (aiSettingsCache.totalSearches || 0) + 1;
+    localStorage.setItem(AI_SETTINGS_KEY, JSON.stringify(aiSettingsCache));
+    renderAiUsageNote();
+
+    if (!candidates.length) {
+      statusEl.textContent = 'No addresses found in that text.';
+      statusEl.style.color = 'var(--text-dim)';
+      return;
+    }
+    statusEl.textContent = `✓ Found ${candidates.length} address(es) — review below`;
+    statusEl.style.color = '#5fd98a';
+    showExtractionPreview(candidates, caseTag);
+  } catch (err) {
+    statusEl.textContent = 'Extraction failed: ' + err.message;
+    statusEl.style.color = '#e08a7a';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Editable preview modal — every field stays a real input/select so a wrong
+// guess can be fixed right here, before anything is written. Each row gets
+// a checkbox (checked by default) so a clearly-wrong or irrelevant
+// candidate can just be excluded rather than requiring a delete later.
+function showExtractionPreview(candidates, caseTag) {
+  const rows = candidates.map((c, i) => `
+    <div style="border:1px solid var(--line); border-radius:6px; padding:10px; margin-bottom:8px;">
+      <label style="display:flex; align-items:center; gap:8px; margin-bottom:8px; cursor:pointer;">
+        <input type="checkbox" id="ext_${i}_include" checked style="margin:0;">
+        <span style="font-family:var(--mono); font-size:11.5px; color:var(--text-dim);">Entry ${i + 1}</span>
+      </label>
+      <div class="form-grid">
+        <div class="full">
+          <label style="font-size:10.5px;">Address</label>
+          <input type="text" id="ext_${i}_addr" value="${escapeHTML(c.address || '')}">
+        </div>
+        <div>
+          <label style="font-size:10.5px;">Chain</label>
+          <input type="text" id="ext_${i}_chain" value="${escapeHTML((c.chain || '').toLowerCase())}" placeholder="e.g. ethereum">
+        </div>
+        <div>
+          <label style="font-size:10.5px;">Type</label>
+          <select id="ext_${i}_type">
+            ${ALLOWED_TYPES.map(t => `<option value="${t}" ${c.type === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:10.5px;">Protocol</label>
+          <input type="text" id="ext_${i}_protocol" value="${escapeHTML(c.protocol || '')}">
+        </div>
+        <div>
+          <label style="font-size:10.5px;">Confidence</label>
+          <select id="ext_${i}_confidence">
+            ${ALLOWED_CONFIDENCE.map(cf => `<option value="${cf}" ${c.confidence === cf ? 'selected' : ''}>${cf}</option>`).join('')}
+          </select>
+        </div>
+        <div class="full">
+          <label style="font-size:10.5px;">Notes / source</label>
+          <textarea id="ext_${i}_notes" rows="2">${escapeHTML([c.notes, c.source ? `Source: ${c.source}` : null].filter(Boolean).join(' '))}</textarea>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  const bodyHTML = `
+    <div class="note" style="margin-bottom:12px;">${candidates.length} address(es) drafted${caseTag ? `, will be tagged under case "${escapeHTML(caseTag)}"` : ''}. Edit anything below, uncheck what you don't want, then confirm.</div>
+    <div style="max-height:50vh; overflow:auto;">${rows}</div>
+  `;
+
+  showModal(`Review extracted entries`, bodyHTML, [
+    { label: 'Cancel', className: 'ghost', onClick: () => removeModal() },
+    { label: 'Add checked entries', onClick: () => confirmExtractionBatch(candidates.length, caseTag) },
+  ]);
+}
+
+// Reuses the exact same "merge case into an existing address, otherwise add
+// new" logic as addEntry() — an extracted address that's already in the
+// registry under a different investigation is exactly the cross-case
+// signal the case field exists to catch, batch extraction included.
+async function confirmExtractionBatch(count, caseTag) {
+  let added = 0, merged = 0, rejected = 0;
+  const rejectedReasons = [];
+  for (let i = 0; i < count; i++) {
+    const includeEl = document.getElementById(`ext_${i}_include`);
+    if (!includeEl || !includeEl.checked) continue;
+    const raw = {
+      address: document.getElementById(`ext_${i}_addr`).value.trim(),
+      chain: document.getElementById(`ext_${i}_chain`).value.trim(),
+      type: document.getElementById(`ext_${i}_type`).value,
+      protocol: document.getElementById(`ext_${i}_protocol`).value.trim(),
+      confidence: document.getElementById(`ext_${i}_confidence`).value,
+      notes: document.getElementById(`ext_${i}_notes`).value.trim(),
+      cases: caseTag ? [caseTag] : [],
+    };
+    const v = validateEntry(raw);
+    if (!v.ok) { rejected++; rejectedReasons.push(`Entry ${i + 1}: ${v.reason}`); continue; }
+
+    const key = duplicateKey(v.entry);
+    const existing = entryMap.get(key);
+    if (existing) {
+      const existingCases = existing.cases || [];
+      const newCases = (v.entry.cases || []).filter(c => !existingCases.includes(c));
+      if (newCases.length) {
+        await updateEntry({ ...existing, cases: [...existingCases, ...newCases] });
+        entryMap.set(key, { ...existing, cases: [...existingCases, ...newCases] });
+        merged++;
+      } else {
+        rejected++;
+        rejectedReasons.push(`Entry ${i + 1}: duplicate — already registered, no new case to add`);
+      }
+      continue;
+    }
+
+    const entry = { ...v.entry, _key: key };
+    try { await putEntry(entry); entryMap.set(key, entry); added++; }
+    catch (err) { rejected++; rejectedReasons.push(`Entry ${i + 1}: ${err.message}`); }
+  }
+
+  removeModal();
+  entries = await getAll();
+  render();
+  document.getElementById('f_extract_text').value = '';
+  document.getElementById('aiExtractStatus').textContent = '';
+  showToast(`Added ${added}, merged case into ${merged} existing, ${rejected} rejected/skipped`);
+  if (rejectedReasons.length) console.log('Extraction batch — skipped rows:', rejectedReasons);
 }
 
 // A starter set of common chain names, so the datalist below has good
@@ -1045,11 +1336,21 @@ function render(){
   // plus anything already in the data, so the common cases are pick-not-type
   // (eliminating typos outright) while an "Other" option still allows adding
   // a genuinely new chain that isn't in the list yet.
+  // REAL BUG FIXED 2026-08-10: there was no genuine "nothing selected" state
+  // here — the select always defaulted to whatever option sorted first, and
+  // that value (or whatever a PRIOR entry left it on) silently persisted
+  // across entries. Once "Research with AI" started reading this value as a
+  // chain hint, a leftover selection from an earlier, unrelated address got
+  // sent as if it were a deliberate hint for the new one — confirmed real
+  // case: an EVM address researched with a stale "bitcoin" hint still
+  // sitting in the dropdown from a prior entry. The blank "(unspecified)"
+  // option below is now the actual default, and it's what the research
+  // hint correctly reads as "no hint" (falsy value → skipped).
   const addChainSelect = document.getElementById('f_chain');
   const prevAddChainValue = addChainSelect.value;
   const addChainOptions = [...new Set([...CANONICAL_CHAINS, ...chains])].sort();
-  addChainSelect.innerHTML = addChainOptions.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('') + '<option value="__other__">Other\u2026</option>';
-  if (addChainOptions.includes(prevAddChainValue) || prevAddChainValue === '__other__') addChainSelect.value = prevAddChainValue;
+  addChainSelect.innerHTML = '<option value="">(unspecified)</option>' + addChainOptions.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('') + '<option value="__other__">Other\u2026</option>';
+  if (prevAddChainValue === '' || addChainOptions.includes(prevAddChainValue) || prevAddChainValue === '__other__') addChainSelect.value = prevAddChainValue;
 
   // Case filter + Add-entry case dropdown: same pick-or-add-new pattern as
   // chain, but no canonical starter list — case names are yours, not a
@@ -1068,6 +1369,23 @@ function render(){
   const prevAddCaseValue = addCaseSelect.value;
   addCaseSelect.innerHTML = '<option value="">(no case)</option>' + allCases.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('') + '<option value="__other__">Add new case\u2026</option>';
   if (allCases.includes(prevAddCaseValue) || prevAddCaseValue === '__other__' || prevAddCaseValue === '') addCaseSelect.value = prevAddCaseValue;
+
+  // Same two dropdowns again for the "Extract from an article" panel —
+  // duplicated rather than shared elements, since a batch extraction and a
+  // single manual add are independent actions that shouldn't reset each
+  // other's in-progress state.
+  const extractChainSelect = document.getElementById('f_extract_chain');
+  if (extractChainSelect) {
+    const prevExtractChainValue = extractChainSelect.value;
+    extractChainSelect.innerHTML = '<option value="">(let the agent determine it)</option>' + addChainOptions.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
+    if (prevExtractChainValue === '' || addChainOptions.includes(prevExtractChainValue)) extractChainSelect.value = prevExtractChainValue;
+  }
+  const extractCaseSelect = document.getElementById('f_extract_case');
+  if (extractCaseSelect) {
+    const prevExtractCaseValue = extractCaseSelect.value;
+    extractCaseSelect.innerHTML = '<option value="">(no case)</option>' + allCases.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('') + '<option value="__other__">Add new case\u2026</option>';
+    if (allCases.includes(prevExtractCaseValue) || prevExtractCaseValue === '__other__' || prevExtractCaseValue === '') extractCaseSelect.value = prevExtractCaseValue;
+  }
 
   const list = getFilteredList();
   const q = document.getElementById('search').value.trim();
@@ -1268,6 +1586,7 @@ async function addEntry(){
     await updateEntry(merged);
     entries = await getAll();
     ['f_addr','f_protocol','f_notes'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('f_chain').value = '';
     document.getElementById('f_chain_other').value = '';
     document.getElementById('f_chain_other').style.display = 'none';
     document.getElementById('f_case_other').value = '';
@@ -1281,6 +1600,7 @@ async function addEntry(){
   await putEntry(entry);
   entries = await getAll();
   ['f_addr','f_protocol','f_notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f_chain').value = '';
   document.getElementById('f_chain_other').value = '';
   document.getElementById('f_chain_other').style.display = 'none';
   document.getElementById('f_case_other').value = '';
@@ -1978,6 +2298,9 @@ document.getElementById('f_chain').addEventListener('change', (e) => {
 });
 document.getElementById('f_case').addEventListener('change', (e) => {
   document.getElementById('f_case_other').style.display = e.target.value === '__other__' ? 'block' : 'none';
+});
+document.getElementById('f_extract_case').addEventListener('change', (e) => {
+  document.getElementById('f_extract_case_other').style.display = e.target.value === '__other__' ? 'block' : 'none';
 });
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => {
