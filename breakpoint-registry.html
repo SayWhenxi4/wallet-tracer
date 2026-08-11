@@ -1448,20 +1448,8 @@ function shadeHex(hex, amt) {
   const clamp = (v) => Math.max(0, Math.min(255, v | 0));
   return `rgb(${clamp(f(r))},${clamp(f(g))},${clamp(f(b))})`;
 }
-let networkGradientsBuilt = false;
-function ensureNetworkGradientDefs(svg) {
-  if (networkGradientsBuilt && svg.querySelector('#net-defs')) return;
-  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-  defs.id = 'net-defs';
-  defs.innerHTML = Object.entries(NETWORK_TYPE_COLOR).map(([type, c]) => `
-    <radialGradient id="net-grad-${type}" cx="34%" cy="34%" r="70%">
-      <stop offset="0%" stop-color="${shadeHex(c.stroke, 0.45)}"/>
-      <stop offset="45%" stop-color="${c.stroke}"/>
-      <stop offset="100%" stop-color="${shadeHex(c.stroke, -0.34)}"/>
-    </radialGradient>`).join('');
-  svg.prepend(defs);
-  networkGradientsBuilt = true;
-}
+let networkGradientsBuilt = false; // retained as a no-op flag; gradients removed below (see the flat-fill correction)
+function ensureNetworkGradientDefs(svg) { /* intentionally empty — see renderNetworkMap's node drawing for the current (flat, not gradient) style */ }
 
 // Same watermark as Wallet-Tracer's graph background: a faint circle,
 // crosshair, and "V" chevron, low-opacity, centered in the panel. Static
@@ -1587,6 +1575,24 @@ function updateNetworkLayoutButtons() {
   radialBtn.style.color = networkMapLayout === 'radial' ? 'var(--amber)' : '';
 }
 
+// The real cause of the sluggishness: render() runs on every keystroke in
+// search (and every filter change, every entry add...), and renderNetworkMap
+// used to do the full O(n\u00b2) physics recompute + a total SVG rebuild EVERY
+// single time — even when the filtered set hadn't actually changed, or when
+// the user was mid-keystroke and about to change it again immediately.
+// Two fixes: (1) debounce the map specifically, separate from the table/
+// stats, so typing stays instant and the map settles ~200ms after you
+// pause rather than recomputing on every character; (2) skip the recompute
+// entirely when the filtered set + layout mode are identical to last time,
+// which also covers render() calls triggered by something unrelated to the
+// map (a toast, an AI status update elsewhere) that happen to pass through
+// the same filtered list.
+let networkMapDebounceTimer = null;
+let lastNetworkSignature = null;
+function scheduleNetworkMapRender(list) {
+  clearTimeout(networkMapDebounceTimer);
+  networkMapDebounceTimer = setTimeout(() => renderNetworkMap(list), 200);
+}
 function renderNetworkMap(list) {
   const svg = document.getElementById('networkMapSvg');
   const countEl = document.getElementById('networkMapCount');
@@ -1599,6 +1605,10 @@ function renderNetworkMap(list) {
     : `${list.length.toLocaleString()} node${list.length === 1 ? '' : 's'}`;
   updateNetworkLayoutButtons();
 
+  const signature = networkMapLayout + '|' + shown.map(e => e._key || computeKey(e)).join(',');
+  if (signature === lastNetworkSignature) return; // filtered set + layout unchanged — nothing to redraw
+  lastNetworkSignature = signature;
+
   svg.innerHTML = '';
   ensureNetworkGradientDefs(svg);
   svg.insertAdjacentHTML('beforeend', networkWatermarkSVG(width, height));
@@ -1607,15 +1617,25 @@ function renderNetworkMap(list) {
   const nodes = networkMapLayout === 'radial' ? computeNetworkLayoutRadial(shown, width, height) : computeNetworkLayoutForce(shown, width, height);
   const nodesLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   nodesLayer.innerHTML = nodes.map(n => {
+    // Flat fill + glow, matching Wallet-Tracer's ACTUAL node style — not the
+    // gradient this used to have. Wallet-Tracer defines a glossy 3-stop
+    // radial-gradient helper (bubbleGradient) but never actually calls it
+    // anywhere; the real draw path is a flat solid disc (ctx.fillStyle =
+    // color; ctx.fill()) with a color-matched shadowBlur glow around bigger
+    // "major" nodes, plus a small darker circle in the middle of those for
+    // a ring/donut look. Checked this directly against the uploaded source
+    // rather than trusting the first function that looked relevant.
     const color = NETWORK_TYPE_COLOR[n.entry.type] || NETWORK_TYPE_COLOR.router;
     const key = n.entry._key || computeKey(n.entry);
     const weight = networkNodeWeight(n.entry);
-    const R = 13 + weight * 1.6; // more significant entries draw bigger, same idea as Wallet-Tracer sizing by connection weight
-    const glow = 3 + weight * 3; // stronger glow for more significant nodes
+    const major = weight > 0;
+    const R = 13 + weight * 1.6;
+    const glow = major ? 3 + weight * 3 : 0;
     return `
-      <g class="net-node" data-key="${escapeHTML(key)}" style="cursor:pointer; filter:drop-shadow(0 0 ${glow}px ${color.stroke});">
-        <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${R}" fill="url(#net-grad-${n.entry.type in NETWORK_TYPE_COLOR ? n.entry.type : 'router'})" stroke="${shadeHex(color.stroke, -0.34)}" stroke-width="1"></circle>
-        <text x="${n.x.toFixed(1)}" y="${(n.y + 3).toFixed(1)}" text-anchor="middle" font-family="var(--mono)" font-size="7.5" font-weight="600" fill="#0a0e17">${escapeHTML(networkNodeLabel(n.entry))}</text>
+      <g class="net-node" data-key="${escapeHTML(key)}" style="cursor:pointer;${glow ? ` filter:drop-shadow(0 0 ${glow}px ${color.stroke});` : ''}">
+        <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${R}" fill="${color.stroke}"></circle>
+        ${major ? `<circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${(R * 0.4).toFixed(1)}" fill="rgba(0,0,0,0.40)"></circle>` : ''}
+        <text x="${n.x.toFixed(1)}" y="${(n.y + 3).toFixed(1)}" text-anchor="middle" font-family="var(--mono)" font-size="7.5" font-weight="600" fill="${major ? color.stroke : '#0a0e17'}">${escapeHTML(networkNodeLabel(n.entry))}</text>
       </g>`;
   }).join('');
   svg.appendChild(nodesLayer);
@@ -1717,7 +1737,7 @@ function render(){
   }
 
   const list = getFilteredList();
-  renderNetworkMap(list);
+  scheduleNetworkMapRender(list);
   const q = document.getElementById('search').value.trim();
   const filteredCountEl = document.getElementById('filteredCount');
   const isFiltered = activeFilter !== 'all' || chainSelect.value !== 'all' || q;
