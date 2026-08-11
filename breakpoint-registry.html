@@ -136,6 +136,7 @@
   .tag.dex{ background:#1f3320; color:#8fcf7a; }
   .tag.whale{ background:#33241a; color:#e0a458; }
   .tag.scam{ background:#3a1616; color:#e08a7a; }
+  .tag.tornado_exit{ background:#2a2036; color:#9d7fc9; }
   .conf{ font-size:11px; }
   .conf.confirmed{ color:var(--green); }
   .conf.probable{ color:var(--amber); }
@@ -248,6 +249,7 @@
     <div class="chip active" data-filter-type="all">All types</div>
     <div class="chip" data-filter-type="bridge">Bridges</div>
     <div class="chip" data-filter-type="mixer">Mixers</div>
+    <div class="chip" data-filter-type="tornado_exit">Tornado exits</div>
     <div class="chip" data-filter-type="privacy_pool">Privacy pools</div>
     <div class="chip" data-filter-type="router">Routers</div>
     <div class="chip" data-filter-type="exchange">Exchanges</div>
@@ -481,7 +483,7 @@ let activeFilter = 'all';
 // Whitelists. Anything outside these is REJECTED at validation time, not
 // coerced — a bulk import is exactly the situation where a malformed or
 // hostile record could otherwise inject class names / break rendering.
-const ALLOWED_TYPES = ['bridge', 'mixer', 'privacy_pool', 'router', 'exchange', 'token_contract', 'dex', 'whale', 'scam'];
+const ALLOWED_TYPES = ['bridge', 'mixer', 'privacy_pool', 'router', 'exchange', 'token_contract', 'dex', 'whale', 'scam', 'tornado_exit'];
 const ALLOWED_CONFIDENCE = ['confirmed', 'probable', 'historical'];
 const MAX_FIELD_LEN = { address: 128, chain: 40, protocol: 300, notes: 4000, source: 200, case: 80 };
 
@@ -616,14 +618,14 @@ const SEED = [
   { address: "0x5bdf85216ec1e38d6458c870992a69e38e03f7ef", chain: "ethereum", type: "exchange", protocol: "Bitget 5", confidence: "confirmed", notes: "https://etherscan.io/address/0x5bdf85216ec1e38d6458c870992a69e38e03f7ef", source: "manual" },
   { address: "0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5", chain: "ethereum", type: "bridge", protocol: "Across Protocol: SpokePool", confidence: "confirmed", notes: "Across Protocol's official SpokePool contract — processes deposits/fills for Across bridging on this chain. Shared infrastructure used by many unrelated bridge users; do not treat counterparties as connected to any one case. Source: Across's own official docs (chains-and-contracts), cross-referenced against the official contracts repo.", source: "docs.across.to/chains-and-contracts (Across Protocol's own official chains & contracts reference)" },
   { address: "0x61edcdf5bb737adffe5043706e7c5bb1f1a56eea", chain: "ethereum", type: "exchange", protocol: "Gemini Cold/Hot Wallet", confidence: "probable", notes: "Rich-list address tagged as Gemini by CoinCarp's own public rich-list page. Community/analytics-sourced label, not confirmed directly by Gemini itself — hence 'probable' rather than 'confirmed' confidence. Exchange custody wallet holding pooled customer funds; do not treat counterparties as connected to any one case.", source: "coincarp.com/currencies/{bitcoin,ethereum}/richlist (CoinCarp's own public rich-list page, community/analytics-tagged)" },
-  { address: "0x722122dF12D4e14e13Ac3b6895a86e84145b6967", chain: "ethereum", type: "mixer", protocol: "Tornado Cash", confidence: "historical", notes: "Same 2022 designation / March 2025 delisting as above.", source: "Dropbox: /breakpoint-master.json" },
+  { address: "0x722122dF12D4e14e13Ac3b6895a86e84145b6967", chain: "ethereum", type: "tornado_exit", protocol: "Tornado Cash", confidence: "historical", notes: "Same 2022 designation / March 2025 delisting as above.", source: "Dropbox: /breakpoint-master.json" },
   { address: "0x742d35cc6634c0532925a3b844bc454e4438f44e", chain: "ethereum", type: "exchange", protocol: "Bitfinex Cold/Hot Wallet", confidence: "probable", notes: "Rich-list address tagged as Bitfinex by CoinCarp's own public rich-list page. Community/analytics-sourced label, not confirmed directly by Bitfinex itself — hence 'probable' rather than 'confirmed' confidence. Exchange custody wallet holding pooled customer funds; do not treat counterparties as connected to any one case.", source: "coincarp.com/currencies/{bitcoin,ethereum}/richlist (CoinCarp's own public rich-list page, community/analytics-tagged)" },
   { address: "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D", chain: "ethereum", type: "dex", protocol: "Uniswap V2: Router 2", confidence: "confirmed", notes: "Uniswap's official V2 swap router, verified against Uniswap's own contract docs and Etherscan's verified source. High-traffic shared infrastructure used by millions of unrelated wallets — treat like an exchange wallet for tracing purposes: do NOT read its other counterparties as connected to any one case. Source: github.com/Uniswap/docs (contracts/v2/reference/smart-contracts/06-router02.md); etherscan.io/address/0x7a250d5630b4cf539739df2c5dacb4c659f2488d.", source: "Dropbox: /breakpoint-master.json" },
-  { address: "0x8589427373D6D84E98730D7795D8f6f8731FDA16", chain: "ethereum", type: "mixer", protocol: "Tornado Cash", confidence: "historical", notes: "From OFAC's original Aug 8, 2022 SDN designation. DELISTED March 21, 2025 after the Fifth Circuit ruled immutable smart contracts aren't sanctionable 'property' (Van Loon v. Treasury). No longer a sanctions hit, but retains investigative value as a known mixer contract. Source: ofac.treasury.gov/recent-actions/20220808.", source: "Dropbox: /breakpoint-master.json" },
+  { address: "0x8589427373D6D84E98730D7795D8f6f8731FDA16", chain: "ethereum", type: "tornado_exit", protocol: "Tornado Cash", confidence: "historical", notes: "From OFAC's original Aug 8, 2022 SDN designation. DELISTED March 21, 2025 after the Fifth Circuit ruled immutable smart contracts aren't sanctionable 'property' (Van Loon v. Treasury). No longer a sanctions hit, but retains investigative value as a known mixer contract. Source: ofac.treasury.gov/recent-actions/20220808.", source: "Dropbox: /breakpoint-master.json" },
   { address: "0x868dab0b8e21ec0a48b726a1ccf25826c78c6d7f", chain: "ethereum", type: "exchange", protocol: "OKX Cold/Hot Wallet", confidence: "probable", notes: "Rich-list address tagged as OKX by CoinCarp's own public rich-list page. Community/analytics-sourced label, not confirmed directly by OKX itself — hence 'probable' rather than 'confirmed' confidence. Exchange custody wallet holding pooled customer funds; do not treat counterparties as connected to any one case.", source: "coincarp.com/currencies/{bitcoin,ethereum}/richlist (CoinCarp's own public rich-list page, community/analytics-tagged)" },
   { address: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48", chain: "ethereum", type: "token_contract", protocol: "USDC (Circle)", confidence: "confirmed", notes: "Canonical USDC token contract on Ethereum mainnet, verified directly against Circle's own contract-address documentation and Etherscan's verified source. Not a custody point — this is the ERC-20 contract itself, not a wallet. If tracing a specific transfer, follow the sender/receiver wallets, not this address. Source: developers.circle.com/stablecoins/usdc-contract-addresses; etherscan.io/address/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.", source: "Dropbox: /breakpoint-master.json" },
   { address: "0xAaDA05BD399372f0b0463744C09113c137636f6a", chain: "ethereum", type: "bridge", protocol: "Circle CCTP (via Wormhole)", confidence: "confirmed", notes: "Circle's native USDC cross-chain transfer contract on ethereum, as integrated/documented by Wormhole. Source: wormhole.com/docs/products/reference/contract-addresses (Wormhole's own official docs, last updated Jul 23 2026).", source: "Harvested from official docs" },
-  { address: "0xDD4c48C0B24039969fC16D1cdF626eaB821d3384", chain: "ethereum", type: "mixer", protocol: "Tornado Cash", confidence: "historical", notes: "Same 2022 designation / March 2025 delisting as above.", source: "Dropbox: /breakpoint-master.json" },
+  { address: "0xDD4c48C0B24039969fC16D1cdF626eaB821d3384", chain: "ethereum", type: "tornado_exit", protocol: "Tornado Cash", confidence: "historical", notes: "Same 2022 designation / March 2025 delisting as above.", source: "Dropbox: /breakpoint-master.json" },
   { address: "0xE592427A0AEce92De3Edee1F18E0157C05861564", chain: "ethereum", type: "dex", protocol: "Uniswap V3: Swap Router", confidence: "confirmed", notes: "Uniswap's official V3 swap router — identical address across Ethereum, Polygon, Optimism, and Arbitrum per Uniswap's own deployment docs. High-traffic shared infrastructure used by millions of unrelated wallets — treat like an exchange for tracing purposes, do NOT read its other counterparties as connected to any one case. Source: github.com/Uniswap/v3-periphery/blob/main/deploys.md (Uniswap's own official deployment registry).", source: "Harvested from official docs" },
   { address: "0xEfF92A263d31888d860bD50809A8D171709b7b1c", chain: "ethereum", type: "dex", protocol: "PancakeSwap V2: Router", confidence: "confirmed", notes: "PancakeSwap V2 Router — official AMM router contract for this chain. Shared infrastructure used by many unrelated DEX users; do not treat counterparties as connected to any one case. Source: PancakeSwap's own official developer docs (contracts/v2/addresses).", source: "developer.pancakeswap.finance/contracts/v2/addresses (PancakeSwap's own official developer docs, cross-referenced against PancakeRouter.sol on GitHub)" },
   { address: "0xF3f04555f8FdA510bfC77820FD6eB8446f59E72d", chain: "ethereum", type: "bridge", protocol: "Mayan Swap Bridge", confidence: "confirmed", notes: "Legacy Wormhole-based swap bridge contract (same address on BSC, Polygon, Avalanche, Arbitrum). Mayan has since moved to a solver/intent-based model — funds may route through solver wallets that don't touch this contract directly, so this address alone won't catch current flow. Source: docs.mayan.finance/integration/contracts-legacy. https://etherscan.io/address/0xf3f04555f8fda510bfc77820fd6eb8446f59e72d", source: "manual" },
@@ -925,7 +927,7 @@ async function init(){
 }
 
 function typeLabel(t){
-  return { bridge:'bridge', mixer:'mixer', privacy_pool:'privacy pool', router:'router', exchange:'exchange', token_contract:'token contract', dex:'DEX / swap', whale:'whale wallet', scam:'confirmed scam' }[t] || t;
+  return { bridge:'bridge', mixer:'mixer', privacy_pool:'privacy pool', router:'router', exchange:'exchange', token_contract:'token contract', dex:'DEX / swap', whale:'whale wallet', scam:'confirmed scam', tornado_exit:'Tornado Cash exit' }[t] || t;
 }
 
 function getFilteredList(){
@@ -1089,7 +1091,7 @@ SEARCH STRATEGY — do this before concluding nothing is known:
 Rules you must follow exactly:
 1. Respond with ONLY a single JSON object as your final message. No markdown, no preamble, no explanation outside the JSON.
 2. chain: the blockchain this address is on, lowercase (e.g. "ethereum", "bitcoin", "flare"). If not given and not determinable, use null.
-3. type: one of exactly these values: "bridge", "mixer", "privacy_pool", "router", "exchange", "token_contract", "dex", "whale", "scam". Pick the single best fit.
+3. type: one of exactly these values: "bridge", "mixer", "privacy_pool", "router", "exchange", "token_contract", "dex", "whale", "scam", "tornado_exit". Pick the single best fit. Use "tornado_exit" specifically for a Tornado Cash pool contract or an address that withdrew from one — not the generic "mixer" — since this registry tracks Tornado Cash separately from other mixers. Note that Tornado Cash's 2022 OFAC sanctions designation was lifted in March 2025 (Van Loon v. Treasury) — it retains investigative value as known mixer infrastructure, but is no longer a sanctions hit; reflect that in confidence/notes rather than treating it as currently sanctioned.
 4. protocol: the specific name (e.g. "Tornado Cash", "Bybit Hot Wallet 1", "Uniswap V2: Router 2"). Null if genuinely unidentifiable.
 5. confidence: "confirmed" only if a primary source (the project's own docs, an official exchange statement, a government action, a verified contract/name tag on a block explorer) directly names this address. "probable" if a secondary/community source (a rich-list tag, an analytics site) labels it without primary confirmation. "historical" for a designation that has since changed (e.g. delisted sanctions).
 6. notes: 1-3 sentences, written the way this registry's existing entries are — state what the address is, note anything a trace investigator should know (e.g. "shared infrastructure, do not treat its other counterparties as connected to this case"), and be explicit when a source is community-tagged rather than official.
@@ -1100,7 +1102,7 @@ Rules you must follow exactly:
 Output schema (exact keys):
 {
   "chain": string | null,
-  "type": "bridge" | "mixer" | "privacy_pool" | "router" | "exchange" | "token_contract" | "dex" | "whale" | "scam",
+  "type": "bridge" | "mixer" | "privacy_pool" | "router" | "exchange" | "token_contract" | "dex" | "whale" | "scam" | "tornado_exit",
   "protocol": string | null,
   "confidence": "confirmed" | "probable" | "historical",
   "notes": string,
@@ -1215,7 +1217,7 @@ Rules you must follow exactly:
 3. For each address:
    - address: exactly as it appears in the text, case preserved.
    - chain: lowercase (e.g. "ethereum", "bitcoin"). Infer from context/format if not explicit. Null if genuinely undeterminable.
-   - type: one of exactly: "bridge", "mixer", "privacy_pool", "router", "exchange", "token_contract", "dex", "whale", "scam". For an attacker/hacker wallet with no more specific classification, use "scam".
+   - type: one of exactly: "bridge", "mixer", "privacy_pool", "router", "exchange", "token_contract", "dex", "whale", "scam", "tornado_exit". For an attacker/hacker wallet with no more specific classification, use "scam". Use "tornado_exit" for a Tornado Cash pool or a withdrawal from one, not the generic "mixer" — this registry tracks Tornado Cash separately.
    - protocol: a short label for what this address IS or is called in the text (e.g. "Attacker wallet #1", "Consolidation hub", "Tornado Cash", "Binance deposit address"). Null if nothing better than "unknown" applies.
    - confidence: "confirmed" only if a primary source (the article's own on-chain evidence, an official statement, a verified explorer label) directly supports this address's role. "probable" if it's inferred from context/pattern (e.g. "received funds from the exploit tx") without independent confirmation. "historical" rarely applies here.
    - notes: 1-3 sentences describing this address's SPECIFIC ROLE in this incident, in the same style as the rest of this registry (state what it is, what it did in the incident, and flag anything an investigator should know — e.g. "do not treat its other counterparties as connected to this case" for shared/exchange infrastructure). This is the most important field — the role/context from the article belongs here since the schema has no separate field for it.
@@ -1432,6 +1434,7 @@ const NETWORK_TYPE_COLOR = {
   dex:            { fill: '#1f3320', stroke: '#8fcf7a' },
   whale:          { fill: '#33241a', stroke: '#e0a458' },
   scam:           { fill: '#3a1616', stroke: '#e08a7a' },
+  tornado_exit:   { fill: '#2a2036', stroke: '#9d7fc9' },
 };
 function networkNodeLabel(e) {
   const src = (e.protocol && e.protocol.trim()) || e.address;

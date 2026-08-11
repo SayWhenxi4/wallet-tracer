@@ -3,7 +3,7 @@
 // Site is now split: "/" (index.html) is the public landing page,
 // "/app.html" is the actual tool — the PWA's start_url points at app.html
 // directly so the installed home-screen icon opens the tool, not the landing page.
-const CACHE_NAME = 'wallet-tracer-v62';
+const CACHE_NAME = 'wallet-tracer-v63';
 const APP_SHELL = [
   '/',
   '/index.html',

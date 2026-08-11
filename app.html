@@ -3240,6 +3240,144 @@ async function fetchInternalTxs(host, address, onProgress, chainId, opts) {
   }
 }
 
+// Tornado-exit candidate finder. Standalone — calls the EXISTING
+// fetchInternalTxs() exactly as any other address would, on the Tornado pool
+// contract itself, then filters the pool's outbound internal transactions to
+// a 24h FORWARD window starting at our deposit timestamp. Forward-only is
+// deliberate: a withdrawal can only be causally related to a deposit if it
+// happens AFTER that deposit (the withdrawer needs the depositor's secret
+// note) — a withdrawal before our deposit cannot be ours, symmetric ±24h
+// would wrongly include those. This deliberately does NOT use
+// fetchLogs/getLogs (no such infrastructure exists in this app and none is
+// added here) — Tornado withdrawals move native-currency value out of the
+// pool contract via internal transaction, which the existing internal-tx
+// fetch path already surfaces. Self-contained: does not modify, wrap, or
+// share state with fetchInternalTxs or any existing adapter. Any failure
+// here returns an empty list rather than throwing, so it can never break a
+// trace that would otherwise have completed normally.
+// Bounded fetch: uses blockNumberNear (same helper the app's own
+// ascending-from-anchor fetch already relies on) to start reading from just
+// before the deposit, ascending, instead of the default newest-first-from-
+// block-0 scan — on a high-volume pool with an old deposit, newest-first
+// could hit its page cap before ever reaching back to the relevant window.
+// KNOWN GAPS (accepted for v1):
+// - A withdrawal routed through a relayer moves pool -> relayer -> recipient
+//   (two hops) — this only catches direct, self-relayed withdrawals.
+// - fetchInternalTxs has no stopBeforeTs support for internal-tx pagination
+//   (only the regular tx/token fetchers have that early-exit), so this call
+//   is capped at TORNADO_FETCH_MAX_PAGES pages rather than stopping exactly
+//   at the 24h mark — on an extremely high-volume pool it could still miss
+//   withdrawals late in the window if that cap is reached first.
+const TORNADO_EXIT_WINDOW_MS = 24 * 3600 * 1000;
+const TORNADO_FETCH_MAX_PAGES = 20;
+// Tornado's pools are FIXED-DENOMINATION — every deposit into a given pool
+// contract is exactly that pool's denomination (0.1/1/10/100 ETH, etc.), and
+// every real withdrawal from it pays out that same denomination minus, at
+// most, a relayer fee (self-relayed withdrawals pay the full amount; a
+// relayed one pays denomination minus the relayer's cut, typically a small
+// single-digit percentage). So the traced deposit's own value IS the
+// expected payout ceiling for anything genuinely drawn from the same pool —
+// an internal transaction from the pool that's far below that, or above it,
+// isn't a plausible withdrawal of THIS deposit's note, and including it
+// would just be noise. 5% is a deliberately generous floor: real relayer
+// fees are usually well under that, so this errs toward keeping a real
+// match rather than excluding one over an unusually priced relayer.
+const TORNADO_MAX_FEE_PCT = 0.05;
+async function findTornadoExitCandidates(poolAddress, chainKey, depositTs, depositVal) {
+  try {
+    if (!depositTs || !CHAINS[chainKey]) return [];
+    const host = CHAINS[chainKey].host;
+    const chainId = CHAINS[chainKey].chainId;
+    let opts = { maxPages: TORNADO_FETCH_MAX_PAGES };
+    if (CHAINS[chainKey].useEtherscanV2) opts = Object.assign(opts, { useEtherscanV2: true, preferRoutescan: true, useNodereal: true });
+    else if (CHAINS[chainKey].preferRoutescan) opts = Object.assign(opts, { preferRoutescan: true });
+    const lookup = await blockNumberNear(chainKey, depositTs - 36e5); // 1h grace before deposit, same grace window the app's own ascending-fetch pattern uses
+    if (lookup && lookup.block) opts = Object.assign(opts, { sinceBlock: lookup.block, sortAsc: true });
+    const internalTxs = await fetchInternalTxs(host, poolAddress, () => {}, chainId, opts);
+    if (!Array.isArray(internalTxs)) return [];
+    const windowEnd = depositTs + TORNADO_EXIT_WINDOW_MS;
+    // Only enforced when we actually know the deposit's value — a candidate
+    // lookup triggered without a valid depositVal falls back to time-only
+    // filtering rather than silently returning nothing.
+    const minPayout = depositVal ? depositVal * (1 - TORNADO_MAX_FEE_PCT) : null;
+    const maxPayout = depositVal ? depositVal * 1.001 : null; // tiny rounding tolerance only — a real withdrawal is never MORE than the denomination
+    return internalTxs.filter((tx) => {
+      if (!tx.to || !tx.to.hash || !tx.timestamp) return false;
+      const ts = Date.parse(tx.timestamp);
+      if (!ts) return false;
+      if (ts < depositTs || ts > windowEnd) return false;
+      if (minPayout !== null) {
+        const valueEth = weiToDecimal(tx.value);
+        if (!valueEth || valueEth < minPayout || valueEth > maxPayout) return false;
+      }
+      return true;
+    }).map((tx) => ({
+      withdrawalAddress: tx.to.hash,
+      withdrawalTx: tx.hash,
+      withdrawalTs: tx.timestamp,
+      withdrawalValue: weiToDecimal(tx.value) || null,
+    }));
+  } catch { return []; }
+}
+
+// Token-pool counterpart to findTornadoExitCandidates above. Tornado also
+// runs fixed-denomination pools for DAI/USDC/USDT/WBTC, not just native ETH
+// — a withdrawal from one of those moves value as an ERC-20 Transfer OUT of
+// the pool contract, not a native internal transaction, so the native
+// version above would correctly identify the pool but find zero
+// withdrawals (looking at the wrong data source, not because none exist).
+// Same time-window + value-window logic, just against fetchTokenTransfers
+// instead of fetchInternalTxs, and using each transfer's own token.decimals
+// rather than assuming 18 — this is genuinely necessary here (USDC/USDT are
+// 6 decimals, not 18; getting this wrong wouldn't just be off by a little,
+// it would be off by a factor of a trillion and every value-window check
+// would silently fail).
+// Deliberately does NOT filter by a specific token contract address — a
+// given Tornado pool only ever holds and moves the one token it was
+// deployed for, so any outbound transfer from the pool in the time+value
+// window is already implicitly the right token. This avoids needing to
+// know in advance which token was deposited, at no real cost in precision.
+async function findTornadoExitCandidatesToken(poolAddress, chainKey, depositTs, depositVal) {
+  try {
+    if (!depositTs || !CHAINS[chainKey]) return [];
+    const host = CHAINS[chainKey].host;
+    const chainId = CHAINS[chainKey].chainId;
+    let opts = { maxPages: TORNADO_FETCH_MAX_PAGES };
+    if (CHAINS[chainKey].useEtherscanV2) opts = Object.assign(opts, { useEtherscanV2: true, preferRoutescan: true, useNodereal: true });
+    else if (CHAINS[chainKey].preferRoutescan) opts = Object.assign(opts, { preferRoutescan: true });
+    const lookup = await blockNumberNear(chainKey, depositTs - 36e5);
+    if (lookup && lookup.block) opts = Object.assign(opts, { sinceBlock: lookup.block, sortAsc: true });
+    const tokenTransfers = await fetchTokenTransfers(host, poolAddress, () => {}, chainId, opts);
+    if (!Array.isArray(tokenTransfers)) return [];
+    const windowEnd = depositTs + TORNADO_EXIT_WINDOW_MS;
+    const poolLower = poolAddress.toLowerCase();
+    const minPayout = depositVal ? depositVal * (1 - TORNADO_MAX_FEE_PCT) : null;
+    const maxPayout = depositVal ? depositVal * 1.001 : null;
+    return tokenTransfers.filter((tt) => {
+      if (!tt.from || !tt.from.hash || !tt.to || !tt.to.hash || !tt.timestamp) return false;
+      if (tt.from.hash.toLowerCase() !== poolLower) return false; // outbound from the pool only — an inbound (someone else depositing) isn't a withdrawal
+      const ts = Date.parse(tt.timestamp);
+      if (!ts) return false;
+      if (ts < depositTs || ts > windowEnd) return false;
+      if (minPayout !== null) {
+        const decimals = parseInt((tt.token && tt.token.decimals) || "18", 10);
+        const valueDec = weiToDecimal((tt.total && tt.total.value) || "0", decimals);
+        if (!valueDec || valueDec < minPayout || valueDec > maxPayout) return false;
+      }
+      return true;
+    }).map((tt) => {
+      const decimals = parseInt((tt.token && tt.token.decimals) || "18", 10);
+      return {
+        withdrawalAddress: tt.to.hash,
+        withdrawalTx: tt.tx_hash || tt.transaction_hash || null,
+        withdrawalTs: tt.timestamp,
+        withdrawalValue: weiToDecimal((tt.total && tt.total.value) || "0", decimals) || null,
+      };
+    });
+  } catch { return []; }
+}
+
+
 // Internal-transaction counterpart of fetchTokenTransfersRoutescan. Normalizes
 // Etherscan-style "txlistinternal" rows into the same from/to {hash} shape
 // analyzeWallet expects.
@@ -4692,6 +4830,46 @@ function saveConfirmedScam(address, chain, isContract, justification) {
 function removeConfirmedScam(address) {
   delete confirmedScamCache[address.toLowerCase()];
   idbSet(CONFIRMED_SCAM_KEY, confirmedScamCache).catch(() => {});
+}
+
+// ---------- Persistent Tornado-exit candidate registry ----------
+// Same durability model as the three caches above — own IndexedDB key,
+// survives "Clear data", included in exportBoundaryRegistryForBreakpoint().
+// NOT a custody claim: a withdrawal address in this cache only means it
+// pulled funds out of a specific Tornado pool within 24h of one of our
+// traced deposits into that same pool. Tornado's shielded-pool design means
+// there is no on-chain link between a specific deposit and a specific
+// withdrawal — this is a candidate list for investigative follow-up, not
+// proof of custody. Keyed by chain+pool+withdrawal address+tx hash so the
+// same address seen across multiple cases/pools accumulates multiple rows
+// instead of overwriting — seeing the SAME address recur across unrelated
+// cases is the actual signal this cache is built to surface over time.
+const TORNADO_EXITS_KEY = "tornado-exits-v1";
+let tornadoExitCache = {}; // key: chain|pool|withdrawalAddress|txHash -> entry
+async function loadTornadoExits() {
+  try { tornadoExitCache = (await idbGet(TORNADO_EXITS_KEY)) || {}; }
+  catch { tornadoExitCache = {}; }
+}
+function saveTornadoExitCandidate(entry) {
+  const key = [entry.chain, entry.poolAddress, entry.withdrawalAddress, entry.withdrawalTx].join("|").toLowerCase();
+  const existing = tornadoExitCache[key];
+  const linkedCases = new Set(existing ? existing.linkedCases : []);
+  if (entry.caseId) linkedCases.add(entry.caseId);
+  tornadoExitCache[key] = {
+    chain: entry.chain,
+    poolAddress: storedAddrForm(entry.poolAddress),
+    poolLabel: entry.poolLabel || (existing ? existing.poolLabel : "") || "",
+    withdrawalAddress: storedAddrForm(entry.withdrawalAddress),
+    withdrawalTx: entry.withdrawalTx,
+    withdrawalTs: entry.withdrawalTs || (existing ? existing.withdrawalTs : null),
+    withdrawalValue: entry.withdrawalValue !== undefined ? entry.withdrawalValue : (existing ? existing.withdrawalValue : null),
+    depositTs: entry.depositTs || (existing ? existing.depositTs : null),
+    depositVal: entry.depositVal !== undefined ? entry.depositVal : (existing ? existing.depositVal : null),
+    linkedCases: [...linkedCases],
+    firstFlaggedAt: existing ? existing.firstFlaggedAt : new Date().toISOString(),
+    lastUpdatedAt: new Date().toISOString(),
+  };
+  idbSet(TORNADO_EXITS_KEY, tornadoExitCache).catch(() => {});
 }
 
 // Small modal for the label + type, since a prompt() can't offer a dropdown.
@@ -8869,6 +9047,28 @@ function exportBoundaryRegistryForBreakpoint() {
     }
   }
 
+  // tornadoExitCache: candidate withdrawal addresses seen exiting a Tornado
+  // pool within 24h of one of our traced deposits into that pool. NOT a
+  // custody claim (Tornado has no on-chain deposit/withdrawal link) — type
+  // "tornado-exit" keeps these visibly distinct from the confirmed
+  // exchange/contract/scam entries above. The real value compounds over
+  // time: the same withdrawal address recurring across multiple unrelated
+  // cases in BREAKPOINT's shared registry is a strong signal on its own,
+  // with no correlation math needed to see it.
+  for (const entry of Object.values(tornadoExitCache || {})) {
+    const valueNote = entry.withdrawalValue ? ` Withdrew ~${entry.withdrawalValue} (deposit was ${entry.depositVal || 'unknown'}), consistent with this pool's fixed denomination minus a relayer fee.` : '';
+    registry.push({
+      address: entry.withdrawalAddress,
+      chain: entry.chain,
+      type: "tornado_exit",
+      protocol: entry.poolLabel || "Tornado Cash",
+      confidence: "probable",
+      notes: `Withdrew from ${entry.poolLabel || "a Tornado pool"} (tx ${entry.withdrawalTx ? short(entry.withdrawalTx) : "unknown"}) within 24h of a traced deposit into the same pool.${valueNote} Timing-window candidate only — not proof of custody.`,
+      cases: entry.linkedCases || [],
+      source: "Wallet-Tracer export"
+    });
+  }
+
   if (!registry.length) { showError("Nothing to export yet — mark an exchange, a verified contract, or a confirmed scam wallet first, then try again."); return; }
 
   const ts = new Date().toISOString().replace(/:/g, "-").replace(/\..+/, "").replace("T", "_");
@@ -10775,6 +10975,7 @@ const TL_META = {
   bridge:               { label: "Bridge",        color: "#8a4fc9" },
   dex:                  { label: "DEX router",    color: "#3aa596" },
   contract:             { label: "Contract",      color: "#5c7a8a" },
+  "tornado-exit-found":  { label: "Tornado exit",  color: "#8a4fc9" },
   burn:                 { label: "Burn/Mint",     color: "#8a5c5c" },
   "dead-end":           { label: "Dead end",      color: "#64718a" },
   corridor:             { label: "Corridor match", color: "#3aa596" },
@@ -11420,6 +11621,43 @@ async function traceFundsAuto(rootAddress, chain, anchor) {
           upsertNode(hop.address, hop.chain, { category: "contract", autoLabel: label || undefined, tagChecked: true, isContract: true, contractType: cInfo.type });
           logTimeline({ type: "contract", address: hop.address, chain: hop.chain, depth: hop.depth, parent: hop.parent, value: hop.valueIn,
             note: `Smart contract (${cInfo.type}) — verified/tagged, no swap signal, treated as an endpoint.` });
+          // Tornado-exit candidate lookup: fire-and-forget, never blocks or
+          // can break this trace. Existing endpoint behavior above (log +
+          // continue) is completely unchanged regardless of what this does.
+          // Runs BOTH the native (ETH pool) and token (DAI/USDC/USDT/WBTC
+          // pool) searches in parallel rather than trying to guess which
+          // kind of pool this is from the contract name alone — a given
+          // pool will only ever produce real candidates from one of the
+          // two, and the other returns empty at negligible extra cost.
+          if (cInfo.type && cInfo.type.includes("Tornado") && hop.tsIn) {
+            const poolAddr = hop.address, poolChain = hop.chain, poolLabel = cInfo.type, depositTs = hop.tsIn, depositVal = hop.valueIn || null, caseId = rootAddress;
+            Promise.all([
+              findTornadoExitCandidates(poolAddr, poolChain, depositTs, depositVal),
+              findTornadoExitCandidatesToken(poolAddr, poolChain, depositTs, depositVal),
+            ])
+              .then(([nativeCandidates, tokenCandidates]) => {
+                const seenTx = new Set();
+                const candidates = [...nativeCandidates, ...tokenCandidates].filter((c) => {
+                  const k = (c.withdrawalTx || "").toLowerCase();
+                  if (k && seenTx.has(k)) return false;
+                  if (k) seenTx.add(k);
+                  return true;
+                });
+                if (!candidates.length) return;
+                for (const c of candidates) {
+                  saveTornadoExitCandidate({
+                    chain: poolChain, poolAddress: poolAddr, poolLabel,
+                    withdrawalAddress: c.withdrawalAddress, withdrawalTx: c.withdrawalTx, withdrawalTs: c.withdrawalTs, withdrawalValue: c.withdrawalValue,
+                    depositTs: new Date(depositTs).toISOString(), depositVal, caseId,
+                  });
+                }
+                const valNote = depositVal ? ` — narrowed to payouts within 5% of the traced ${depositVal} deposit (this pool's fixed denomination)` : '';
+                logTimeline({ type: "tornado-exit-found", address: poolAddr, chain: poolChain, depth: hop.depth, parent: hop.parent,
+                  note: `${candidates.length} withdrawal(s) from this pool within 24h of the deposit${valNote} — saved as candidate exit(s) for BREAKPOINT export. Not a custody claim — Tornado has no on-chain deposit/withdrawal link; these are time-window + value candidates for manual follow-up.` });
+                renderAll();
+              })
+              .catch(() => {});
+          }
           scheduleSave(); renderAll();
           continue;
         } else {
@@ -13928,6 +14166,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadConfirmedExchanges().then(() => renderAll()); // async — re-render once the durable exchange registry lands
   loadConfirmedContracts().then(() => renderAll()); // async — re-render once the durable contract registry lands
   loadConfirmedScam().then(() => renderAll()); // async — re-render once the durable scam registry lands
+  loadTornadoExits(); // async — no renderAll dependency, this cache has no visible UI of its own yet
   loadUiMode().then(() => renderAll()); // sets data-ui-mode on body before first paint where possible
   { const us = document.getElementById("uiModeSimpleBtn"); if (us) us.addEventListener("click", () => setUiMode("simple")); }
   { const ua = document.getElementById("uiModeAdvancedBtn"); if (ua) ua.addEventListener("click", () => setUiMode("advanced")); }
