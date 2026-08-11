@@ -21,6 +21,19 @@
     --mono:'JetBrains Mono', monospace;
     --display:'Martian Mono', monospace;
   }
+  /* Ambient panel glow, copied directly from Wallet-Tracer's graph panel —
+     a slow-spinning rainbow conic-gradient halo behind the network map,
+     not per-node. */
+  @property --ring-angle{syntax:'<angle>';initial-value:0deg;inherits:false;}
+  @keyframes bpspin{to{--ring-angle:360deg;}}
+  .graph-glow-wrap { position: relative; margin: 0 0 18px; }
+  .graph-glow-wrap::before {
+    content:""; position:absolute; inset:-12px; border-radius:20px; z-index:0;
+    background: conic-gradient(from var(--ring-angle),#ff3b30,#ff8a1e,#ffd60a,#35d07f,#34c7ff,#4a7bff,#ff3b30);
+    filter: blur(16px); opacity:.6; animation: bpspin 4.5s linear infinite; pointer-events:none;
+  }
+  .graph-glow-wrap > .panel { position: relative; z-index: 1; margin: 0; }
+  @media (prefers-reduced-motion: reduce){ .graph-glow-wrap::before { animation:none; --ring-angle:45deg; } }
   *{box-sizing:border-box;}
   body{
     margin:0; background:var(--bg); color:var(--text);
@@ -204,6 +217,23 @@
 </header>
 
 <main>
+
+  <div class="graph-glow-wrap">
+  <div class="panel" style="margin:0; padding:0; overflow:hidden;">
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; background:var(--panel-2); border-bottom:1px solid var(--line); flex-wrap:wrap;">
+      <h3 style="margin:0;"><span class="dot"></span>Network map</h3>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <div class="btn-row" style="margin:0;">
+          <button type="button" id="netLayoutForceBtn" class="ghost" onclick="setNetworkLayout('force')" style="padding:5px 10px; font-size:11px;">Force (organic)</button>
+          <button type="button" id="netLayoutRadialBtn" class="ghost" onclick="setNetworkLayout('radial')" style="padding:5px 10px; font-size:11px;">Radial tree (Noxos-style)</button>
+        </div>
+        <span id="networkMapCount" style="font-size:11px; color:var(--text-dim);"></span>
+      </div>
+    </div>
+    <svg id="networkMapSvg" viewBox="0 0 1400 700" style="width:100%; height:75vh; min-height:460px; max-height:820px; display:block; background:var(--bg);"></svg>
+    <div class="note" style="padding:8px 14px; margin:0; border-top:1px solid var(--line);">Reflects your current search/filter selections above. Click any node for full details.</div>
+  </div>
+  </div>
 
   <div class="stat-row" id="statRow"></div>
 
@@ -425,7 +455,9 @@
     </div>
     <div class="btn-row">
       <button onclick="saveAiSettings()">Save</button>
+      <button class="ghost" onclick="testAiConnection()" id="aiTestBtn">Test connection</button>
     </div>
+    <div class="note" id="aiTestStatus" style="margin-top:6px;"></div>
     <div class="note" id="aiUsageNote" style="margin-top:10px;"></div>
   </div>
   </div>
@@ -879,6 +911,7 @@ async function init(){
   toggleAiCollapse(localStorage.getItem('bp_ai_collapsed') !== '0'); // same default-collapsed behavior
   toggleMasterCollapse(localStorage.getItem('bp_master_collapsed') !== '0'); // same — used less often than the everyday panels
   toggleExtractCollapse(localStorage.getItem('bp_extract_collapsed') !== '0'); // same
+  networkMapLayout = (localStorage.getItem('bp_network_layout') === 'radial') ? 'radial' : 'force';
   loadAiSettings();
   tryRestoreMasterHandle();
   await handleDropboxRedirect(); // no-op unless we just came back from Dropbox's sign-in page
@@ -984,6 +1017,53 @@ function saveAiSettings() {
   showToast('AI settings saved — key stays in this browser only');
   renderAiUsageNote();
 }
+
+// Tests whatever's currently in the key/model fields, not necessarily the
+// last-saved values — so it's useful the moment you paste a key, without
+// requiring Save first. Minimal request (no web search, tiny max_tokens):
+// this only needs to confirm the key and model actually work, cheaply.
+async function testAiConnection() {
+  const btn = document.getElementById('aiTestBtn');
+  const statusEl = document.getElementById('aiTestStatus');
+  const key = document.getElementById('aiApiKey').value.trim();
+  const model = document.getElementById('aiModel').value;
+  if (!key) { showToast('Enter an API key first'); return; }
+
+  btn.disabled = true;
+  statusEl.textContent = '🤖 Testing…';
+  statusEl.style.color = '#7fb4ff';
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': key,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 10,
+        messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error((err.error && err.error.message) || `API error ${resp.status}`);
+    }
+    const data = await resp.json();
+    const reply = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('').trim();
+    statusEl.textContent = `✓ Connected — ${model} responded${reply ? ` ("${reply.slice(0, 30)}")` : ''}`;
+    statusEl.style.color = '#5fd98a';
+  } catch (err) {
+    statusEl.textContent = '✗ Failed: ' + err.message;
+    statusEl.style.color = '#e08a7a';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function aiIsConfigured() { return !!(aiSettingsCache.apiKey && aiSettingsCache.apiKey.trim()); }
 function renderAiUsageNote() {
   const el = document.getElementById('aiUsageNote');
@@ -1001,15 +1081,20 @@ function renderAiUsageNote() {
 // doesn't have public attribution.
 const AI_RESEARCH_SYSTEM_PROMPT = `You are a blockchain forensics research assistant helping populate a registry of known custody-break addresses (exchanges, mixers, bridges, contracts, notable wallets). Given one blockchain address (and possibly its chain), search the web for what is publicly known about it, then produce a registry entry.
 
+SEARCH STRATEGY — do this before concluding nothing is known:
+1. Search directly for the address on its chain's block explorer BY NAME, not just a generic query — e.g. "0x7a250d... etherscan", "0x... basescan", "0x... bscscan", "<address> arbiscan". Block explorers (Etherscan, Basescan, Arbiscan, BscScan, etc.) maintain a "Public Name Tag" for well-known contracts and addresses (exchange hot wallets, DEX routers, known protocols) — this is usually the single best source available and is exactly the kind of primary, verifiable attribution this registry wants. If the address is a verified contract, the explorer's "Contract Name" field is also a strong signal for protocol/type.
+2. If the address doesn't have an explorer tag, also try the project's own official docs (many DeFi protocols publish their deployed contract addresses directly — e.g. Uniswap, Wormhole, LayerZero all do this) and sanctions/analytics sources (OFAC SDN list, Chainalysis/Elliptic public reports, exchange rich-list tags).
+3. Only after exhausting these does "no public attribution found" become the honest answer — for a well-known, high-traffic contract (a major DEX router, a top exchange's hot wallet), genuinely finding nothing should be rare, not the default outcome.
+
 Rules you must follow exactly:
 1. Respond with ONLY a single JSON object as your final message. No markdown, no preamble, no explanation outside the JSON.
 2. chain: the blockchain this address is on, lowercase (e.g. "ethereum", "bitcoin", "flare"). If not given and not determinable, use null.
 3. type: one of exactly these values: "bridge", "mixer", "privacy_pool", "router", "exchange", "token_contract", "dex", "whale", "scam". Pick the single best fit.
 4. protocol: the specific name (e.g. "Tornado Cash", "Bybit Hot Wallet 1", "Uniswap V2: Router 2"). Null if genuinely unidentifiable.
-5. confidence: "confirmed" only if a primary source (the project's own docs, an official exchange statement, a government action, a verified contract on a block explorer) directly names this address. "probable" if a secondary/community source (a rich-list tag, an analytics site) labels it without primary confirmation. "historical" for a designation that has since changed (e.g. delisted sanctions).
+5. confidence: "confirmed" only if a primary source (the project's own docs, an official exchange statement, a government action, a verified contract/name tag on a block explorer) directly names this address. "probable" if a secondary/community source (a rich-list tag, an analytics site) labels it without primary confirmation. "historical" for a designation that has since changed (e.g. delisted sanctions).
 6. notes: 1-3 sentences, written the way this registry's existing entries are — state what the address is, note anything a trace investigator should know (e.g. "shared infrastructure, do not treat its other counterparties as connected to this case"), and be explicit when a source is community-tagged rather than official.
-7. source: the actual URL(s) or named source you found this from. Never fabricate a source — if you cannot find one, say so in source and drop confidence to "probable" at most.
-8. If you find genuinely nothing public about this address, do not force an answer: set type to "router" (the closest to "unclassified"), confidence to "probable", and say plainly in notes that no public attribution was found — this is a correct, honest, useful result, not a failure.
+7. source: the actual URL(s) or named source you found this from — name the explorer/site specifically (e.g. "etherscan.io/address/0x...", not just "block explorer"). Never fabricate a source — if you cannot find one after the search strategy above, say so in source and drop confidence to "probable" at most.
+8. If you find genuinely nothing public about this address after trying the search strategy above, do not force an answer: set type to "router" (the closest to "unclassified"), confidence to "probable", and say plainly in notes that no public attribution was found — this is a correct, honest, useful result, not a failure.
 9. Never invent a designation, date, or source you did not actually find.
 
 Output schema (exact keys):
@@ -1051,7 +1136,7 @@ async function researchWithAi() {
       },
       body: JSON.stringify({
         model: aiSettingsCache.model,
-        max_tokens: 1200,
+        max_tokens: 3000,
         system: AI_RESEARCH_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent }],
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
@@ -1062,6 +1147,9 @@ async function researchWithAi() {
       throw new Error((err.error && err.error.message) || `API error ${resp.status}`);
     }
     const data = await resp.json();
+    if (data.stop_reason === 'max_tokens') {
+      throw new Error('Response was cut off mid-search — try again (a retry sometimes takes a shorter path).');
+    }
 
     // Server-executed tool: Anthropic runs the actual search on its own
     // side and returns everything — search results and the final answer —
@@ -1119,6 +1207,8 @@ async function researchWithAi() {
 // written, is the only real chance to fix a wrong field.
 const AI_EXTRACT_SYSTEM_PROMPT = `You are a blockchain forensics research assistant. You will be given the text of an article, thread, or post-mortem about a hack or security incident. Find every blockchain address mentioned in the text (and, if it helps identify addresses not explicitly labeled, use web search to corroborate — e.g. confirming a consolidation wallet's later deposits into a known exchange). For EACH distinct address, produce a registry entry.
 
+When corroborating an address by search, check its chain's block explorer directly (e.g. "<address> etherscan", "<address> basescan") — explorers maintain a "Public Name Tag" for well-known contracts and exchange wallets, and this is usually the strongest available source for identifying an address that the article itself doesn't fully explain (e.g. a consolidation wallet that turns out to be a known exchange deposit address). Don't limit corroboration to a generic search when a direct explorer lookup is available. Only spend a search on addresses where the article's own context is genuinely insufficient — most attacker/consolidation wallets in a hack are new/unlabeled and a search will correctly find nothing, which is fine; rely on the article's own description of the role for those.
+
 Rules you must follow exactly:
 1. Respond with ONLY a single JSON array as your final message. No markdown, no preamble, no explanation outside the array. If you find no addresses at all, respond with an empty array: []
 2. Extract at most 30 addresses. If more appear in the text, include the 30 most significant to the incident (attacker/consolidation wallets over minor counterparties) and omit the rest — do not fail or truncate mid-object.
@@ -1164,7 +1254,7 @@ async function extractEntitiesFromText() {
       },
       body: JSON.stringify({
         model: aiSettingsCache.model,
-        max_tokens: 8000,
+        max_tokens: 16000,
         system: AI_EXTRACT_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: userContent }],
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
@@ -1175,11 +1265,22 @@ async function extractEntitiesFromText() {
       throw new Error((err.error && err.error.message) || `API error ${resp.status}`);
     }
     const data = await resp.json();
+    // REAL BUG FIXED 2026-08-10: a longer article means more addresses to
+    // research, more searches run, more search-result content embedded in
+    // the response — all of which counts against max_tokens along with the
+    // final JSON itself. When the response got cut off mid-generation, the
+    // JSON parse failure below gave no indication why; it just said "not
+    // valid JSON," leaving a truncation problem looking like a formatting
+    // one. Confirmed real case: shortening the input text "fixed" it — the
+    // actual fix is checking stop_reason and telling the truth about it.
+    if (data.stop_reason === 'max_tokens') {
+      throw new Error('Response was cut off — too much to research in one pass. Try a shorter excerpt, or fewer addresses at a time.');
+    }
     const textBlocks = (data.content || []).filter(b => b.type === 'text');
     const finalText = textBlocks.length ? textBlocks[textBlocks.length - 1].text : '';
     let candidates;
     try { candidates = JSON.parse(finalText); }
-    catch { throw new Error('Model did not return valid JSON — try again with a shorter excerpt.'); }
+    catch { throw new Error('Model did not return valid JSON — try again, or with a shorter excerpt.'); }
     if (!Array.isArray(candidates)) throw new Error('Model response was not a list of entries.');
 
     const usage = data.usage || {};
@@ -1318,6 +1419,234 @@ async function confirmExtractionBatch(count, caseTag) {
 // rather than only learning from mistakes already in the data).
 const CANONICAL_CHAINS = ['ethereum', 'bitcoin', 'flare', 'songbird', 'solana', 'xrpl', 'arbitrum', 'polygon', 'bsc', 'avalanche', 'optimism', 'base'];
 
+// ---------- Network map ----------
+// Node color mirrors the exact palette the table's type tags already use —
+// same visual language, not a second color system to learn.
+const NETWORK_TYPE_COLOR = {
+  bridge:         { fill: '#1c2c44', stroke: '#7ea6d9' },
+  mixer:          { fill: '#3a1f1f', stroke: '#c9605a' },
+  privacy_pool:   { fill: '#2a2036', stroke: '#b590d9' },
+  router:         { fill: '#233826', stroke: '#6ea87a' },
+  exchange:       { fill: '#173035', stroke: '#5fc9d9' },
+  token_contract: { fill: '#332b12', stroke: '#e0a458' },
+  dex:            { fill: '#1f3320', stroke: '#8fcf7a' },
+  whale:          { fill: '#33241a', stroke: '#e0a458' },
+  scam:           { fill: '#3a1616', stroke: '#e08a7a' },
+};
+function networkNodeLabel(e) {
+  const src = (e.protocol && e.protocol.trim()) || e.address;
+  return src.length > 9 ? src.slice(0, 9) + '\u2026' : src;
+}
+
+// Exact same glossy-bubble shading formula as Wallet-Tracer's bubbleGradient:
+// lighten 45% toward white for the specular highlight, darken 34% toward
+// black for the shaded underside, light source upper-left.
+function shadeHex(hex, amt) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.slice(0,2),16), g = parseInt(h.slice(2,4),16), b = parseInt(h.slice(4,6),16);
+  const f = (v) => amt >= 0 ? v + (255 - v) * amt : v * (1 + amt);
+  const clamp = (v) => Math.max(0, Math.min(255, v | 0));
+  return `rgb(${clamp(f(r))},${clamp(f(g))},${clamp(f(b))})`;
+}
+let networkGradientsBuilt = false;
+function ensureNetworkGradientDefs(svg) {
+  if (networkGradientsBuilt && svg.querySelector('#net-defs')) return;
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  defs.id = 'net-defs';
+  defs.innerHTML = Object.entries(NETWORK_TYPE_COLOR).map(([type, c]) => `
+    <radialGradient id="net-grad-${type}" cx="34%" cy="34%" r="70%">
+      <stop offset="0%" stop-color="${shadeHex(c.stroke, 0.45)}"/>
+      <stop offset="45%" stop-color="${c.stroke}"/>
+      <stop offset="100%" stop-color="${shadeHex(c.stroke, -0.34)}"/>
+    </radialGradient>`).join('');
+  svg.prepend(defs);
+  networkGradientsBuilt = true;
+}
+
+// Same watermark as Wallet-Tracer's graph background: a faint circle,
+// crosshair, and "V" chevron, low-opacity, centered in the panel. Static
+// here (Breakpoint's map has no pan/zoom to compensate for), same colors
+// and proportions.
+function networkWatermarkSVG(width, height) {
+  const cx = width / 2, cy = height / 2;
+  const r = Math.min(width, height) * 0.30;
+  return `
+    <g pointer-events="none">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#C41E3A" stroke-width="${r * 0.08}" opacity="0.14" stroke-linecap="round"/>
+      <g opacity="0.056" stroke="#C41E3A" stroke-width="${r * 0.016}" stroke-linecap="round">
+        <line x1="${cx}" y1="${cy - r*1.05}" x2="${cx}" y2="${cy + r*1.05}"/>
+        <line x1="${cx - r*1.05}" y1="${cy}" x2="${cx + r*1.05}" y2="${cy}"/>
+      </g>
+      <path d="M ${cx - r*0.5} ${cy - r*0.55} L ${cx} ${cy + r*0.55} L ${cx + r*0.5} ${cy - r*0.55}" fill="none" stroke="#C41E3A" stroke-width="${r*0.12}" opacity="0.14" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>`;
+}
+
+// A node's visual "weight" — bigger and more strongly glowing the more
+// significant it is. Breakpoint has no transaction volume like Wallet-
+// Tracer does, so significance here is confidence + how many cases it's
+// tied to (an address confirmed across multiple investigations is exactly
+// the kind of node that should stand out).
+function networkNodeWeight(e) {
+  let w = 0;
+  if (e.confidence === 'confirmed') w += 1;
+  w += Math.min((e.cases || []).length, 3);
+  return w; // 0..4
+}
+
+const NETWORK_MAX_NODES = 400; // O(n\u00b2) repulsion — bounds this to stay fast even on a large registry
+
+// Force (organic): nodes cluster around a per-type "home" position with
+// mutual repulsion, same as before — a one-shot bounded simulation, not a
+// persistent animation loop.
+function computeNetworkLayoutForce(list, width, height) {
+  const types = [...new Set(list.map(e => e.type))];
+  const typeHome = {};
+  const clusterR = Math.min(width, height) * 0.34;
+  types.forEach((t, i) => {
+    const angle = (i / Math.max(types.length, 1)) * Math.PI * 2 - Math.PI / 2;
+    typeHome[t] = { x: width / 2 + Math.cos(angle) * clusterR, y: height / 2 + Math.sin(angle) * clusterR };
+  });
+  const R = 15;
+  const nodes = list.map((e) => {
+    const home = typeHome[e.type] || { x: width / 2, y: height / 2 };
+    const a = Math.random() * Math.PI * 2, d = Math.random() * 30;
+    return { entry: e, x: home.x + Math.cos(a) * d, y: home.y + Math.sin(a) * d, homeX: home.x, homeY: home.y };
+  });
+  const minDist = R * 2.3;
+  const ticks = nodes.length > 150 ? 80 : 160;
+  for (let t = 0; t < ticks; t++) {
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const dx = nodes[j].x - nodes[i].x, dy = nodes[j].y - nodes[i].y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 0.01;
+        if (dist < minDist) {
+          const f = (minDist - dist) / dist * 0.5;
+          const fx = dx * f, fy = dy * f;
+          nodes[i].x -= fx; nodes[i].y -= fy;
+          nodes[j].x += fx; nodes[j].y += fy;
+        }
+      }
+    }
+    for (const n of nodes) {
+      n.x += (n.homeX - n.x) * 0.02;
+      n.y += (n.homeY - n.y) * 0.02;
+      n.x = Math.max(R + 4, Math.min(width - R - 4, n.x));
+      n.y = Math.max(R + 4, Math.min(height - R - 4, n.y));
+    }
+  }
+  return nodes;
+}
+
+// Radial tree (Noxos-style): Breakpoint's registry has no parent-child
+// custody-chain hierarchy the way a Wallet-Tracer trace does — there's no
+// tree to draw. This is the closest honest analog: each type becomes a
+// spoke radiating from the center, and entries along that spoke are
+// ordered outward by significance (networkNodeWeight), so the most
+// notable entries of each type sit closest to the center and lesser ones
+// fan out toward the rim — a wheel, not a literal hierarchy.
+function computeNetworkLayoutRadial(list, width, height) {
+  const cx = width / 2, cy = height / 2;
+  const maxR = Math.min(width, height) * 0.46;
+  const byType = new Map();
+  for (const e of list) {
+    if (!byType.has(e.type)) byType.set(e.type, []);
+    byType.get(e.type).push(e);
+  }
+  const types = [...byType.keys()];
+  const nodes = [];
+  types.forEach((type, ti) => {
+    const spokeAngle = (ti / Math.max(types.length, 1)) * Math.PI * 2 - Math.PI / 2;
+    const group = byType.get(type).slice().sort((a, b) => networkNodeWeight(b) - networkNodeWeight(a));
+    const spreadPerRing = 7; // how many nodes fit on one ring before stepping outward
+    group.forEach((e, i) => {
+      const ring = Math.floor(i / spreadPerRing);
+      const posInRing = i % spreadPerRing;
+      const ringCount = Math.min(spreadPerRing, group.length - ring * spreadPerRing);
+      const angleSpread = Math.min(0.9, ringCount * 0.13); // wider spoke for a fuller ring
+      const angle = spokeAngle + (posInRing - (ringCount - 1) / 2) * (angleSpread / Math.max(ringCount - 1, 1) || 0);
+      const r = 34 + ring * 42;
+      nodes.push({ entry: e, x: cx + Math.cos(angle) * Math.min(r, maxR), y: cy + Math.sin(angle) * Math.min(r, maxR) });
+    });
+  });
+  return nodes;
+}
+
+let networkMapLayout = 'force';
+function setNetworkLayout(mode) {
+  networkMapLayout = mode;
+  localStorage.setItem('bp_network_layout', mode);
+  render();
+}
+function updateNetworkLayoutButtons() {
+  const forceBtn = document.getElementById('netLayoutForceBtn');
+  const radialBtn = document.getElementById('netLayoutRadialBtn');
+  if (!forceBtn || !radialBtn) return;
+  forceBtn.style.borderColor = networkMapLayout === 'force' ? 'var(--amber)' : '';
+  forceBtn.style.color = networkMapLayout === 'force' ? 'var(--amber)' : '';
+  radialBtn.style.borderColor = networkMapLayout === 'radial' ? 'var(--amber)' : '';
+  radialBtn.style.color = networkMapLayout === 'radial' ? 'var(--amber)' : '';
+}
+
+function renderNetworkMap(list) {
+  const svg = document.getElementById('networkMapSvg');
+  const countEl = document.getElementById('networkMapCount');
+  if (!svg) return;
+  const vb = svg.viewBox.baseVal;
+  const width = vb.width || 1400, height = vb.height || 700;
+  const shown = list.slice(0, NETWORK_MAX_NODES);
+  countEl.textContent = list.length > NETWORK_MAX_NODES
+    ? `Showing ${NETWORK_MAX_NODES.toLocaleString()} of ${list.length.toLocaleString()} \u2014 narrow with search/filters to see the rest`
+    : `${list.length.toLocaleString()} node${list.length === 1 ? '' : 's'}`;
+  updateNetworkLayoutButtons();
+
+  svg.innerHTML = '';
+  ensureNetworkGradientDefs(svg);
+  svg.insertAdjacentHTML('beforeend', networkWatermarkSVG(width, height));
+  if (!shown.length) return;
+
+  const nodes = networkMapLayout === 'radial' ? computeNetworkLayoutRadial(shown, width, height) : computeNetworkLayoutForce(shown, width, height);
+  const nodesLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  nodesLayer.innerHTML = nodes.map(n => {
+    const color = NETWORK_TYPE_COLOR[n.entry.type] || NETWORK_TYPE_COLOR.router;
+    const key = n.entry._key || computeKey(n.entry);
+    const weight = networkNodeWeight(n.entry);
+    const R = 13 + weight * 1.6; // more significant entries draw bigger, same idea as Wallet-Tracer sizing by connection weight
+    const glow = 3 + weight * 3; // stronger glow for more significant nodes
+    return `
+      <g class="net-node" data-key="${escapeHTML(key)}" style="cursor:pointer; filter:drop-shadow(0 0 ${glow}px ${color.stroke});">
+        <circle cx="${n.x.toFixed(1)}" cy="${n.y.toFixed(1)}" r="${R}" fill="url(#net-grad-${n.entry.type in NETWORK_TYPE_COLOR ? n.entry.type : 'router'})" stroke="${shadeHex(color.stroke, -0.34)}" stroke-width="1"></circle>
+        <text x="${n.x.toFixed(1)}" y="${(n.y + 3).toFixed(1)}" text-anchor="middle" font-family="var(--mono)" font-size="7.5" font-weight="600" fill="#0a0e17">${escapeHTML(networkNodeLabel(n.entry))}</text>
+      </g>`;
+  }).join('');
+  svg.appendChild(nodesLayer);
+  svg.querySelectorAll('.net-node').forEach(g => {
+    g.addEventListener('click', () => showEntryDetail(g.getAttribute('data-key')));
+  });
+}
+
+// Click behavior: full entry detail in a modal, reusing the exact same
+// showModal pattern as everything else in this app (history view, import
+// preview) rather than introducing a new UI pattern just for this.
+function showEntryDetail(key) {
+  const e = entryMap.get(key);
+  if (!e) { showToast('Entry not found — try refreshing the map'); return; }
+  const safeType = ALLOWED_TYPES.includes(e.type) ? e.type : 'router';
+  const safeConf = ALLOWED_CONFIDENCE.includes(e.confidence) ? e.confidence : 'historical';
+  const bodyHTML = `
+    <div class="note" style="margin-bottom:10px;"><span class="addr" style="cursor:pointer;" onclick="copyAddr(this)">${escapeHTML(e.address)}</span></div>
+    <table class="meta-table" style="width:100%;">
+      <tr><td style="font-weight:bold; width:110px;">Chain</td><td>${escapeHTML(e.chain)}</td></tr>
+      <tr><td style="font-weight:bold;">Type</td><td><span class="tag ${safeType}">${typeLabel(safeType)}</span></td></tr>
+      <tr><td style="font-weight:bold;">Protocol</td><td>${escapeHTML(e.protocol || '\u2014')}</td></tr>
+      <tr><td style="font-weight:bold;">Confidence</td><td><span class="conf ${safeConf}">${escapeHTML(safeConf)}</span></td></tr>
+      <tr><td style="font-weight:bold;">Case(s)</td><td>${(e.cases||[]).length ? escapeHTML(e.cases.join(', ')) : '\u2014'}</td></tr>
+      <tr><td style="font-weight:bold; vertical-align:top;">Notes</td><td style="white-space:pre-wrap;">${escapeHTML(e.notes || '\u2014')}</td></tr>
+    </table>
+    ${e.history && e.history.length ? `<div class="note" style="margin-top:10px;">↺ edited ${e.history.length}× — <span class="src-link" style="cursor:pointer;" onclick="removeModal(); showHistory('${escapeHTML(key)}');">view history</span></div>` : ''}
+  `;
+  showModal('Entry detail', bodyHTML, [{ label: 'Close', className: 'ghost', onClick: removeModal }]);
+}
+
 function render(){
   const chainSelect = document.getElementById('chainFilter');
   const activeChain = chainSelect.value;
@@ -1388,6 +1717,7 @@ function render(){
   }
 
   const list = getFilteredList();
+  renderNetworkMap(list);
   const q = document.getElementById('search').value.trim();
   const filteredCountEl = document.getElementById('filteredCount');
   const isFiltered = activeFilter !== 'all' || chainSelect.value !== 'all' || q;
